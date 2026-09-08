@@ -76,8 +76,11 @@ const used = new Set();
 for (const g of groups) {
   const count = 30 + Math.floor(Math.random() * 60);
   for (let i = 0; i < count; i += 1) {
+    // حدود یک‌چهارم موارد ربات باشند تا تفکیک کانال/ربات قابل تست باشد
+    const makeBot = Math.random() < 0.25;
     const name = `${prefixes[Math.floor(Math.random() * prefixes.length)]}_`
-      + `${suffixes[Math.floor(Math.random() * suffixes.length)]}_${Math.floor(Math.random() * 900) + 100}`;
+      + `${suffixes[Math.floor(Math.random() * suffixes.length)]}_${Math.floor(Math.random() * 900) + 100}`
+      + (makeBot ? '_bot' : '');
     if (used.has(name)) continue;
     used.add(name);
 

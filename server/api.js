@@ -30,6 +30,16 @@ function groupEntries(groupId) {
   return db().entries.filter((e) => e.groupId === groupId);
 }
 
+/**
+ * نوع ورودی: تشخیص خودکار از روی پسوند bot، مگر اینکه مدیر دستی تعیین کرده باشد.
+ * (هر ربات تلگرام به bot ختم می‌شود، ولی هر نام bot-داری ربات نیست — مثل news_robot)
+ */
+function entryIsBot(e) {
+  if (e.type === 'bot') return true;
+  if (e.type === 'channel') return false;
+  return tg.isBot(e.username);
+}
+
 /** چیدمان: نمرهٔ بالاتر اول، نمرهٔ منفی ته لیست */
 function sortEntries(list, mode = 'score') {
   const arr = list.slice();
@@ -50,6 +60,8 @@ function publicEntry(e, ctx) {
     groupId: e.groupId,
     username: e.display,
     key: e.username,
+    isBot: entryIsBot(e),
+    typeManual: e.type === 'bot' || e.type === 'channel',
     link: `https://t.me/${e.display}`,
     note: e.note || '',
     score: e.score || 0,
@@ -77,6 +89,8 @@ function publicGroup(g, ctx) {
     archived: !!g.archived,
     color: g.color || 'blue',
     entryCount: list.length,
+    botCount: list.filter(entryIsBot).length,
+    channelCount: list.filter((e) => !entryIsBot(e)).length,
     negativeCount: list.filter((e) => (e.score || 0) < 0).length,
     myCount: list.filter((e) => e.addedBy === (ctx.user && ctx.user.id)).length,
     lastAddedAt: lastAdded,
@@ -87,16 +101,29 @@ function publicGroup(g, ctx) {
   };
 }
 
+/**
+ * کاربر عادی چقدر از لیست را می‌بیند؟
+ *   all  — کل لیست گروه
+ *   own  — فقط ثبت‌های خودش
+ *   none — هیچ‌چیز (فقط می‌تواند اضافه کند)
+ * مدیر کل همیشه «all» است.
+ */
+function visibility(ctx) {
+  if (!ctx.user) return 'none';
+  if (ctx.user.role === 'admin') return 'all';
+  const v = db().settings.usersEntryVisibility;
+  return ['all', 'own', 'none'].includes(v) ? v : 'none';
+}
+
 function canViewEntries(ctx) {
-  if (!ctx.user) return false;
-  if (ctx.user.role === 'admin') return true;
-  return !!db().settings.usersCanViewEntries;
+  return visibility(ctx) === 'all';
 }
 
 function canVote(ctx) {
   if (!ctx.user) return false;
   if (ctx.user.role === 'admin') return true;
-  return !!(db().settings.usersCanViewEntries && db().settings.usersCanVote);
+  // رأی دادن فقط وقتی معنی دارد که کاربر چیزی برای دیدن داشته باشد
+  return visibility(ctx) !== 'none' && !!db().settings.usersCanVote;
 }
 
 // ---------------------------------------------------------------------------
@@ -165,11 +192,13 @@ route('GET', '/api/me', async (ctx) => {
 function clientSettings(user) {
   const s = db().settings;
   const isAdmin = user && user.role === 'admin';
+  const vis = isAdmin ? 'all' : (s.usersEntryVisibility || 'none');
   return {
     siteName: s.siteName,
     timezone: s.timezone,
-    canViewEntries: isAdmin || s.usersCanViewEntries,
-    canVote: isAdmin || (s.usersCanViewEntries && s.usersCanVote),
+    visibility: vis,
+    canViewEntries: vis === 'all',
+    canVote: isAdmin || (vis !== 'none' && s.usersCanVote),
     canSeeAdText: isAdmin || s.usersCanSeeAdText,
     weakScoreThreshold: s.weakScoreThreshold,
     warnCrossGroupDuplicate: s.warnCrossGroupDuplicate,
@@ -247,17 +276,21 @@ route('POST', '/api/groups', async (ctx) => {
 route('GET', '/api/groups/:id', async (ctx) => {
   auth.requireAuth(ctx);
   const g = groupById(ctx.params.id);
-  const view = canViewEntries(ctx);
+  const vis = visibility(ctx);
   const all = groupEntries(g.id);
-  const mine = all.filter((e) => e.addedBy === ctx.user.id);
+
+  // all → کل لیست، own → فقط ثبت‌های خودش، none → هیچ‌چیز
+  let visible = [];
+  if (vis === 'all') visible = all;
+  else if (vis === 'own') visible = all.filter((e) => e.addedBy === ctx.user.id);
 
   return {
     group: publicGroup(g, ctx),
-    canViewEntries: view,
+    visibility: vis,
+    canViewEntries: vis === 'all',
     canVote: canVote(ctx),
-    // اگر مشاهدهٔ لیست برای کاربر عادی بسته باشد، فقط ثبت‌های خودش را می‌بیند
-    entries: sortEntries(view ? all : mine).map((e) => publicEntry(e, ctx)),
-    showingOnlyMine: !view,
+    entries: sortEntries(visible).map((e) => publicEntry(e, ctx)),
+    showingOnlyMine: vis === 'own',
   };
 });
 
@@ -373,13 +406,20 @@ route('POST', '/api/groups/:id/entries', async (ctx) => {
     added.push(publicEntry(entry, ctx));
   }
 
+  const addedBots = added.filter((e) => e.isBot).length;
+  const addedChannels = added.length - addedBots;
+
   if (added.length) {
     store.save();
-    store.log(user, 'entry_add', `افزودن ${dt.faNum(added.length)} یوزرنیم به «${g.title}»`);
+    store.log(user, 'entry_add',
+      `افزودن ${dt.faNum(added.length)} مورد به «${g.title}» `
+      + `(${dt.faNum(addedChannels)} کانال، ${dt.faNum(addedBots)} ربات)`);
   }
 
   return {
     added,
+    addedBots,
+    addedChannels,
     duplicates,
     crossGroup,
     invalid: parsed.invalid,
@@ -428,6 +468,17 @@ route('PATCH', '/api/entries/:id', async (ctx) => {
     fail(403, 'فقط مدیر یا ثبت‌کنندهٔ یوزرنیم می‌تواند یادداشت را تغییر دهد.', 'forbidden');
   }
   if (ctx.body.note !== undefined) e.note = str(ctx.body.note, 200);
+
+  // تصحیح دستی نوع (کانال/ربات) فقط از سوی مدیر — 'auto' به تشخیص خودکار برمی‌گردد
+  if (ctx.body.type !== undefined) {
+    if (user.role !== 'admin') fail(403, 'تغییر نوع فقط توسط مدیر ممکن است.', 'forbidden');
+    const t = str(ctx.body.type, 10);
+    if (t === 'auto' || t === '') delete e.type;
+    else if (t === 'bot' || t === 'channel') e.type = t;
+    else fail(400, 'نوع نامعتبر است.', 'bad_type');
+    store.log(user, 'entry_type', `تعیین نوع @${e.display} به «${t === 'bot' ? 'ربات' : t === 'channel' ? 'کانال' : 'خودکار'}»`);
+  }
+
   store.save();
   return { entry: publicEntry(e, ctx) };
 });
@@ -488,11 +539,14 @@ route('GET', '/api/search', async (ctx) => {
   const q = str(ctx.query.q, 100).toLowerCase().replace(/^@/, '');
   if (q.length < 2) return { results: [] };
 
-  const view = canViewEntries(ctx);
+  const vis = visibility(ctx);
+  // کاربری که اجازهٔ دیدن هیچ لیستی را ندارد، از راه جست‌وجو هم چیزی نمی‌بیند
+  if (vis === 'none') return { results: [], blocked: true };
+
   const titles = new Map(db().groups.map((g) => [g.id, g.title]));
   const results = db().entries
     .filter((e) => e.username.includes(q))
-    .filter((e) => view || e.addedBy === ctx.user.id)
+    .filter((e) => vis === 'all' || e.addedBy === ctx.user.id)
     .slice(0, 50)
     .map((e) => ({ ...publicEntry(e, ctx), groupTitle: titles.get(e.groupId) || '' }));
 
@@ -527,12 +581,16 @@ route('GET', '/api/groups/:id/export', async (ctx) => {
   const g = groupById(ctx.params.id);
   const format = str(ctx.query.format, 10) || 'txt';
   const includeWeak = ctx.query.includeWeak === '1';
+  const kind = str(ctx.query.type, 10) || 'all'; // all | channel | bot
   const threshold = db().settings.weakScoreThreshold;
 
   let list = sortEntries(groupEntries(g.id));
   if (!includeWeak) list = list.filter((e) => (e.score || 0) > threshold);
+  if (kind === 'bot') list = list.filter(entryIsBot);
+  else if (kind === 'channel') list = list.filter((e) => !entryIsBot(e));
 
-  const safeName = g.title.replace(/[^\p{L}\p{N}_-]+/gu, '_').slice(0, 40) || 'group';
+  const suffix = kind === 'bot' ? '-bots' : (kind === 'channel' ? '-channels' : '');
+  const safeName = (g.title.replace(/[^\p{L}\p{N}_-]+/gu, '_').slice(0, 40) || 'group') + suffix;
 
   if (format === 'csv') {
     const rows = [['username', 'link', 'score', 'note', 'added_by', 'added_at']];
@@ -561,7 +619,7 @@ route('GET', '/api/stats', async (ctx) => {
   const groupId = str(ctx.query.groupId, 60) || 'all';
   const data = stats.dashboard(db(), { groupId });
   // کاربر عادی نباید ترکیب کل تیم را ببیند مگر مشاهدهٔ لیست‌ها باز باشد
-  if (ctx.user.role !== 'admin' && !db().settings.usersCanViewEntries) {
+  if (visibility(ctx) !== 'all') {
     data.topUsers = data.topUsers.filter((u) => u.userId === ctx.user.id);
   }
   return data;
@@ -686,7 +744,11 @@ route('PATCH', '/api/settings', async (ctx) => {
     try { new Intl.DateTimeFormat('en-US', { timeZone: tzv }); s.timezone = tzv; }
     catch { fail(400, 'منطقهٔ زمانی نامعتبر است.', 'bad_timezone'); }
   }
-  if (b.usersCanViewEntries !== undefined) s.usersCanViewEntries = bool(b.usersCanViewEntries, true);
+  if (b.usersEntryVisibility !== undefined) {
+    const v = str(b.usersEntryVisibility, 10);
+    if (!['all', 'own', 'none'].includes(v)) fail(400, 'مقدار دسترسی نامعتبر است.', 'bad_visibility');
+    s.usersEntryVisibility = v;
+  }
   if (b.usersCanVote !== undefined) s.usersCanVote = bool(b.usersCanVote, true);
   if (b.usersCanSeeAdText !== undefined) s.usersCanSeeAdText = bool(b.usersCanSeeAdText, true);
   if (b.warnCrossGroupDuplicate !== undefined) s.warnCrossGroupDuplicate = bool(b.warnCrossGroupDuplicate, true);

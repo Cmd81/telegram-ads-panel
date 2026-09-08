@@ -8,6 +8,8 @@
  */
 
 const USERNAME_RE = /^[A-Za-z][A-Za-z0-9_]{3,31}$/;
+// تلگرام الزام می‌کند یوزرنیم هر ربات به «bot» ختم شود (bot یا _bot، بدون حساسیت به حروف)
+const BOT_RE = /bot$/i;
 const LINK_RE = /(?:https?:\/\/)?(?:www\.)?(?:t\.me|telegram\.me|telegram\.dog)\/(?:s\/)?([A-Za-z][A-Za-z0-9_]{3,31})/gi;
 const AT_RE = /@([A-Za-z][A-Za-z0-9_]{3,31})/g;
 
@@ -84,4 +86,9 @@ function parseList(input) {
   return { items: unique, invalid, dupInInput };
 }
 
-module.exports = { parseOne, parseList, USERNAME_RE };
+/** آیا این یوزرنیم متعلق به یک ربات است؟ (ختم شدن به bot) */
+function isBot(username) {
+  return BOT_RE.test(String(username || ''));
+}
+
+module.exports = { parseOne, parseList, isBot, USERNAME_RE, BOT_RE };

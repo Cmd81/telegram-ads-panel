@@ -275,7 +275,10 @@ const NAV = [
 
 function layout(content) {
   const isAdmin = S.user.role === 'admin';
-  const nav = NAV.filter((n) => !n.admin || isAdmin)
+  const nav = NAV
+    .filter((n) => !n.admin || isAdmin)
+    // جست‌وجو وقتی کاربر اجازهٔ دیدن هیچ لیستی ندارد بی‌معنی است
+    .filter((n) => n.key !== 'search' || S.settings.visibility !== 'none')
     .map((n) => `<a href="#/${n.key}" class="${S.route.name === n.key ? 'active' : ''}">${n.icon} ${n.label}</a>`)
     .join('');
 
@@ -463,7 +466,8 @@ async function viewGroups() {
       </div>
       <p class="desc">${esc(g.description || 'بدون توضیحات')}</p>
       <div class="meta">
-        <span><b>${esc(fa(g.entryCount))}</b> یوزرنیم</span>
+        <span>📢 <b>${esc(fa(g.channelCount))}</b></span>
+        <span>🤖 <b>${esc(fa(g.botCount))}</b></span>
         ${g.negativeCount ? `<span class="badge badge-red">${fa(g.negativeCount)} منفی</span>` : ''}
         ${!data.canViewEntries ? `<span>سهم من: <b>${esc(fa(g.myCount))}</b></span>` : ''}
         ${g.lastAddedLabel ? `<span style="margin-right:auto">آخرین: ${esc(g.lastAddedLabel.split(' ساعت')[0])}</span>` : ''}
@@ -599,7 +603,8 @@ async function viewGroup() {
     </div>
 
     <div class="grid grid-stats" style="margin-bottom:18px">
-      <div class="stat"><div class="label">کل یوزرنیم‌ها</div><div class="value accent">${esc(fa(g.entryCount))}</div></div>
+      <div class="stat"><div class="label">📢 کانال‌ها</div><div class="value accent">${esc(fa(g.channelCount))}</div></div>
+      <div class="stat"><div class="label">🤖 ربات‌ها</div><div class="value" style="color:var(--purple)">${esc(fa(g.botCount))}</div></div>
       <div class="stat"><div class="label">سالم</div><div class="value green">${esc(fa(g.entryCount - g.negativeCount))}</div></div>
       <div class="stat"><div class="label">دارای نمرهٔ منفی</div><div class="value red">${esc(fa(g.negativeCount))}</div></div>
       <div class="stat"><div class="label">ثبت‌شده توسط من</div><div class="value">${esc(fa(g.myCount))}</div></div>
@@ -634,23 +639,40 @@ async function viewGroup() {
         <button class="btn btn-primary" id="add-go">افزودن به گروه</button>
       </div>` : '<div class="alert alert-amber">این گروه بایگانی شده و امکان افزودن یوزرنیم ندارد.</div>'}
 
+    ${data.visibility === 'none' ? `
+      <div class="card">
+        <div class="card-title">📋 لیست یوزرنیم‌ها</div>
+        <div class="empty" style="padding:34px 20px">
+          <div class="icon">🔒</div>
+          <h3>لیست برای شما نمایش داده نمی‌شود</h3>
+          <p>
+            شما می‌توانید یوزرنیم اضافه کنید، اما مشاهدهٔ لیست فقط برای مدیر است.<br>
+            نگران تکراری بودن نباشید — هنگام افزودن، سیستم خودکار بررسی می‌کند.
+          </p>
+        </div>
+      </div>` : `
     <div class="card">
       <div class="card-title">
-        <span>📋 ${data.showingOnlyMine ? 'یوزرنیم‌های ثبت‌شده توسط من' : 'لیست یوزرنیم‌ها'}
-          <span class="badge badge-gray">${esc(fa(data.entries.length))}</span></span>
+        <span>📋 ${data.showingOnlyMine ? 'یوزرنیم‌های ثبت‌شده توسط من' : 'لیست یوزرنیم‌ها'}</span>
         <div class="flex">
           ${data.canViewEntries ? `
-            <button class="btn btn-sm" id="export-txt">⬇ خروجی TXT</button>
-            <button class="btn btn-sm" id="export-csv">⬇ خروجی CSV</button>
-            <button class="btn btn-sm" id="copy-all">📋 کپی همه</button>` : ''}
+            <button class="btn btn-sm" id="export-txt">⬇ TXT</button>
+            <button class="btn btn-sm" id="export-csv">⬇ CSV</button>
+            <button class="btn btn-sm" id="copy-all">📋 کپی</button>` : ''}
         </div>
       </div>
 
       ${data.showingOnlyMine ? `
         <div class="alert alert-accent">
-          مدیر دسترسی مشاهدهٔ کل لیست را برای کاربران عادی بسته است؛ شما فقط ثبت‌های خودتان را می‌بینید.
+          مدیر مشاهدهٔ کل لیست را برای کاربران عادی محدود کرده؛ شما فقط ثبت‌های خودتان را می‌بینید.
           بررسی تکراری بودن همچنان روی کل گروه انجام می‌شود.
         </div>` : ''}
+
+      <div class="tabs" id="type-tabs" style="margin-bottom:14px">
+        <button data-t="channel">📢 کانال‌ها <span class="badge badge-gray" id="cnt-channel">۰</span></button>
+        <button data-t="bot">🤖 ربات‌ها <span class="badge badge-gray" id="cnt-bot">۰</span></button>
+        <button data-t="all">همه <span class="badge badge-gray" id="cnt-all">۰</span></button>
+      </div>
 
       <div class="toolbar">
         <div class="grow"><input type="search" id="filter" placeholder="جست‌وجو در یوزرنیم‌ها یا یادداشت‌ها..."></div>
@@ -664,7 +686,7 @@ async function viewGroup() {
       </div>
 
       <div id="entries-table"></div>
-    </div>`;
+    </div>`}`;
 
   // --- رویدادها ---
   if (isAdmin) {
@@ -693,11 +715,14 @@ async function viewGroup() {
   if (copyAd) copyAd.onclick = () => copyText(g.adText, 'متن تبلیغ کپی شد.');
 
   if (data.canViewEntries) {
-    $('#export-txt').onclick = () => download(`/api/groups/${g.id}/export?format=txt`);
-    $('#export-csv').onclick = () => download(`/api/groups/${g.id}/export?format=csv`);
+    // خروجی همان تبی که باز است گرفته می‌شود
+    const t = () => S.cache.entryType || 'channel';
+    $('#export-txt').onclick = () => download(`/api/groups/${g.id}/export?format=txt&type=${t()}`);
+    $('#export-csv').onclick = () => download(`/api/groups/${g.id}/export?format=csv&type=${t()}`);
     $('#copy-all').onclick = () => {
-      const list = currentFiltered().map((e) => '@' + e.username).join('\n');
-      copyText(list, `${fa(currentFiltered().length)} یوزرنیم کپی شد.`);
+      const list = currentFiltered();
+      copyText(list.map((e) => '@' + e.username).join('\n'),
+        `${fa(list.length)} ${t() === 'bot' ? 'ربات' : t() === 'channel' ? 'کانال' : 'مورد'} کپی شد.`);
     };
   }
 
@@ -709,18 +734,29 @@ async function viewGroup() {
     });
   }
 
-  $('#filter').oninput = renderEntries;
-  $('#sort').onchange = renderEntries;
-  const bulk = $('#bulk-delete');
-  if (bulk) bulk.onclick = () => bulkDelete(g);
+  if (data.visibility !== 'none') {
+    $('#filter').oninput = renderEntries;
+    $('#sort').onchange = renderEntries;
+    $$('#type-tabs button').forEach((b) => {
+      b.onclick = () => { S.cache.entryType = b.dataset.t; renderEntries(); };
+    });
+    const bulk = $('#bulk-delete');
+    if (bulk) bulk.onclick = () => bulkDelete(g);
+    renderEntries();
+  }
+}
 
-  renderEntries();
+/** فقط فیلتر نوع (کانال / ربات / همه) — برای شمارش تب‌ها */
+function byType(list, type) {
+  if (type === 'bot') return list.filter((e) => e.isBot);
+  if (type === 'channel') return list.filter((e) => !e.isBot);
+  return list;
 }
 
 function currentFiltered() {
   const q = ($('#filter')?.value || '').trim().toLowerCase().replace(/^@/, '');
   const sort = $('#sort')?.value || 'score';
-  let list = (S.cache.entries || []).slice();
+  let list = byType((S.cache.entries || []).slice(), S.cache.entryType || 'channel');
 
   if (q) {
     list = list.filter((e) => e.username.toLowerCase().includes(q)
@@ -742,11 +778,24 @@ function renderEntries() {
   const isAdmin = S.user.role === 'admin';
   const canVote = S.cache.group.canVote;
   const threshold = S.settings.weakScoreThreshold ?? -2;
+  const all = S.cache.entries || [];
+  const type = S.cache.entryType || 'channel';
   const list = currentFiltered();
 
+  // شمارنده و حالت فعال تب‌ها
+  const counts = { channel: byType(all, 'channel').length, bot: byType(all, 'bot').length, all: all.length };
+  for (const t of ['channel', 'bot', 'all']) {
+    const badge = $('#cnt-' + t);
+    if (badge) badge.textContent = fa(counts[t]);
+  }
+  $$('#type-tabs button').forEach((b) => b.classList.toggle('active', b.dataset.t === type));
+
   if (!list.length) {
-    box.innerHTML = `<div class="empty"><div class="icon">🔍</div>
-      <h3>موردی یافت نشد</h3><p>${(S.cache.entries || []).length ? 'فیلتر را تغییر دهید.' : 'هنوز یوزرنیمی به این گروه اضافه نشده است.'}</p></div>`;
+    const label = type === 'bot' ? 'رباتی' : type === 'channel' ? 'کانالی' : 'موردی';
+    box.innerHTML = `<div class="empty"><div class="icon">${type === 'bot' ? '🤖' : '📢'}</div>
+      <h3>${esc(label)} یافت نشد</h3><p>${
+        byType(all, type).length ? 'فیلتر جست‌وجو را تغییر دهید.'
+        : `هنوز ${esc(label)} به این گروه اضافه نشده است.`}</p></div>`;
     return;
   }
 
@@ -756,6 +805,9 @@ function renderEntries() {
       <td class="faint nowrap" style="width:40px">${esc(fa(i + 1))}</td>
       <td>
         <a class="uname" href="${esc(e.link)}" target="_blank" rel="noopener noreferrer">@${esc(e.username)}</a>
+        ${type === 'all' ? `<span class="badge ${e.isBot ? 'badge-purple' : 'badge-accent'}"
+          style="margin-right:6px">${e.isBot ? '🤖 ربات' : '📢 کانال'}</span>` : ''}
+        ${e.typeManual ? '<span class="badge badge-gray" title="نوع دستی تعیین شده">دستی</span>' : ''}
         ${e.note ? `<div class="faint" style="font-size:11.5px">${esc(e.note)}</div>` : ''}
       </td>
       <td style="width:90px">
@@ -767,7 +819,9 @@ function renderEntries() {
       </td>
       <td class="faint nowrap" style="width:130px">${esc(e.addedByName)}</td>
       <td class="faint nowrap" style="width:160px">${esc(e.createdAtLabel.replace(' ساعت', '،'))}</td>
-      ${isAdmin ? `<td style="width:80px"><div class="row-actions">
+      ${isAdmin ? `<td style="width:110px"><div class="row-actions">
+        <button class="btn btn-ghost btn-sm" data-type="${esc(e.id)}"
+                title="${e.isBot ? 'تبدیل به کانال' : 'تبدیل به ربات'}">${e.isBot ? '📢' : '🤖'}</button>
         <button class="btn btn-ghost btn-sm" data-reset="${esc(e.id)}" title="صفر کردن نمره">↺</button>
         <button class="btn btn-ghost btn-sm" data-del="${esc(e.id)}" title="حذف">🗑</button>
       </div></td>` : ''}
@@ -812,6 +866,23 @@ function renderEntries() {
             renderEntries();
           },
         });
+      };
+    });
+
+    $$('[data-type]', box).forEach((btn) => {
+      btn.onclick = async () => {
+        const entry = S.cache.entries.find((x) => x.id === btn.dataset.type);
+        btn.disabled = true;
+        try {
+          const r = await api(`/api/entries/${entry.id}`, {
+            method: 'PATCH',
+            body: { type: entry.isBot ? 'channel' : 'bot' },
+          });
+          const idx = S.cache.entries.findIndex((x) => x.id === r.entry.id);
+          if (idx >= 0) S.cache.entries[idx] = r.entry;
+          toast(`@${r.entry.username} به «${r.entry.isBot ? 'ربات' : 'کانال'}» تغییر کرد.`, 'success', 2500);
+          renderEntries();
+        } catch (err) { toast(err.message, 'error'); btn.disabled = false; }
       };
     });
 
@@ -876,7 +947,10 @@ async function submitEntries(groupId, allowCrossGroup) {
 
     let html = '';
     if (r.added.length) {
-      html += `<div class="alert alert-green">✅ <b>${fa(r.added.length)}</b> یوزرنیم اضافه شد.</div>`;
+      const parts = [];
+      if (r.addedChannels) parts.push(`<b>${fa(r.addedChannels)}</b> کانال 📢`);
+      if (r.addedBots) parts.push(`<b>${fa(r.addedBots)}</b> ربات 🤖`);
+      html += `<div class="alert alert-green">✅ ${parts.join(' و ')} اضافه شد.</div>`;
     }
     if (r.duplicates.length) {
       html += `<div class="alert alert-amber">
@@ -920,12 +994,12 @@ async function submitEntries(groupId, allowCrossGroup) {
       const data = await api(`/api/groups/${groupId}`);
       S.cache.group = data;
       S.cache.entries = data.entries;
-      renderEntries();
-      $$('.stat .value')[0].textContent = fa(data.group.entryCount);
-      $$('.stat .value')[1].textContent = fa(data.group.entryCount - data.group.negativeCount);
-      $$('.stat .value')[2].textContent = fa(data.group.negativeCount);
-      $$('.stat .value')[3].textContent = fa(data.group.myCount);
-      toast(`${fa(r.added.length)} یوزرنیم اضافه شد.`, 'success');
+      if (data.visibility !== 'none') renderEntries();
+      const gg = data.group;
+      const stats = [gg.channelCount, gg.botCount, gg.entryCount - gg.negativeCount,
+        gg.negativeCount, gg.myCount];
+      $$('.stat .value').forEach((el, i) => { if (stats[i] !== undefined) el.textContent = fa(stats[i]); });
+      toast(`${fa(r.added.length)} مورد اضافه شد.`, 'success');
     }
   } catch (err) {
     toast(err.message, 'error');
@@ -1032,16 +1106,24 @@ async function viewSearch() {
       box.innerHTML = '<div class="loading"><span class="spinner"></span></div>';
       try {
         const r = await api(`/api/search?q=${encodeURIComponent(q)}`);
+        if (r.blocked) {
+          box.innerHTML = `<div class="empty"><div class="icon">🔒</div>
+            <h3>جست‌وجو برای شما در دسترس نیست</h3>
+            <p>مدیر مشاهدهٔ لیست‌ها را محدود کرده است.<br>
+            تکراری بودن هنگام افزودن به گروه خودکار بررسی می‌شود.</p></div>`;
+          return;
+        }
         if (!r.results.length) {
           box.innerHTML = `<div class="empty"><div class="icon">🔍</div>
-            <h3>یافت نشد</h3><p>هیچ کانالی با این نام ثبت نشده است.</p></div>`;
+            <h3>یافت نشد</h3><p>هیچ کانال یا رباتی با این نام ثبت نشده است.</p></div>`;
           return;
         }
         box.innerHTML = `<div class="table-wrap"><table>
-          <thead><tr><th>یوزرنیم</th><th>گروه</th><th>نمره</th><th>ثبت‌کننده</th><th>تاریخ</th></tr></thead>
+          <thead><tr><th>یوزرنیم</th><th>نوع</th><th>گروه</th><th>نمره</th><th>ثبت‌کننده</th><th>تاریخ</th></tr></thead>
           <tbody>${r.results.map((e) => `
             <tr class="${e.score < 0 ? 'weak' : ''}">
               <td><a class="uname" href="${esc(e.link)}" target="_blank" rel="noopener noreferrer">@${esc(e.username)}</a></td>
+              <td><span class="badge ${e.isBot ? 'badge-purple' : 'badge-accent'}">${e.isBot ? '🤖 ربات' : '📢 کانال'}</span></td>
               <td>${esc(e.groupTitle)}</td>
               <td>${e.score < 0 ? `<span class="badge badge-red">👎 ${esc(fa(e.voteCount))}</span>` : '<span class="faint">۰</span>'}</td>
               <td class="faint">${esc(e.addedByName)}</td>
@@ -1240,9 +1322,24 @@ async function viewSettings() {
 
     <div class="card">
       <div class="card-title">دسترسی کاربران عادی</div>
-      ${sw('s-view', 'مشاهدهٔ لیست کامل یوزرنیم‌های هر گروه',
-        'اگر خاموش باشد، کاربر عادی فقط ثبت‌های خودش را می‌بیند؛ بررسی تکراری همچنان روی کل گروه انجام می‌شود.',
-        settings.usersCanViewEntries)}
+      <div class="field">
+        <label>کاربر عادی چقدر از لیست را ببیند؟</label>
+        <select id="s-visibility">
+          <option value="all" ${settings.usersEntryVisibility === 'all' ? 'selected' : ''}>
+            کل لیست گروه — همه چیز را می‌بیند
+          </option>
+          <option value="own" ${settings.usersEntryVisibility === 'own' ? 'selected' : ''}>
+            فقط ثبت‌های خودش
+          </option>
+          <option value="none" ${settings.usersEntryVisibility === 'none' ? 'selected' : ''}>
+            هیچ‌چیز — فقط می‌تواند اضافه کند
+          </option>
+        </select>
+        <div class="hint">
+          در هر سه حالت، <b>بررسی تکراری روی کل گروه</b> انجام می‌شود؛ پس دادهٔ تکراری وارد نمی‌شود.
+          گزینهٔ «هیچ‌چیز» جست‌وجوی سراسری و خروجی گرفتن را هم برای کاربر عادی می‌بندد.
+        </div>
+      </div>
       ${sw('s-vote', 'ثبت نمرهٔ منفی برای یوزرنیم‌ها',
         'هر کاربر برای هر یوزرنیم فقط یک نمرهٔ منفی می‌تواند بدهد و می‌تواند آن را پس بگیرد.',
         settings.usersCanVote)}
@@ -1284,7 +1381,7 @@ async function viewSettings() {
           siteName: $('#s-name').value,
           timezone: $('#s-tz').value,
           weakScoreThreshold: Number($('#s-threshold').value),
-          usersCanViewEntries: $('#s-view').checked,
+          usersEntryVisibility: $('#s-visibility').value,
           usersCanVote: $('#s-vote').checked,
           usersCanSeeAdText: $('#s-ad').checked,
           warnCrossGroupDuplicate: $('#s-cross').checked,

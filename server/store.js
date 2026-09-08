@@ -16,8 +16,8 @@ const KEEP_BACKUPS = 21;
 const DEFAULT_SETTINGS = {
   siteName: 'داشبورد کانال‌های تبلیغاتی',
   timezone: 'Asia/Tehran',
-  // کاربران عادی لیست یوزرنیم‌های داخل گروه را ببینند؟
-  usersCanViewEntries: true,
+  // کاربر عادی چقدر از لیست را ببیند؟  all | own | none
+  usersEntryVisibility: 'all',
   // کاربران عادی بتوانند نمرهٔ منفی بدهند؟
   usersCanVote: true,
   // کاربران عادی متن تبلیغ گروه را ببینند؟
@@ -55,6 +55,18 @@ function migrate(raw) {
   const base = emptyDb();
   const out = { ...base, ...raw };
   out.settings = { ...DEFAULT_SETTINGS, ...(raw.settings || {}) };
+
+  // مهاجرت از تنظیم دوحالتهٔ قدیمی به سه‌حالتهٔ جدید.
+  // «خاموش» قبلاً یعنی «فقط ثبت‌های خودش»؛ حالا به «هیچ‌چیز» نگاشت می‌شود.
+  if (out.settings.usersCanViewEntries !== undefined) {
+    if (raw.settings && raw.settings.usersEntryVisibility === undefined) {
+      out.settings.usersEntryVisibility = out.settings.usersCanViewEntries ? 'all' : 'none';
+    }
+    delete out.settings.usersCanViewEntries;
+  }
+  if (!['all', 'own', 'none'].includes(out.settings.usersEntryVisibility)) {
+    out.settings.usersEntryVisibility = 'all';
+  }
   out.users = Array.isArray(raw.users) ? raw.users : [];
   out.groups = Array.isArray(raw.groups) ? raw.groups : [];
   out.entries = Array.isArray(raw.entries) ? raw.entries : [];

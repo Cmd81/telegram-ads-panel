@@ -162,6 +162,65 @@ async function run() {
   r = await user.get(`/api/groups/${g1}/check?username=@brand_new_one`);
   check('بررسی لحظه‌ای یوزرنیم جدید', r.data.valid && !r.data.duplicate, r.data);
 
+  // ---- تفکیک کانال و ربات ----
+  section('تشخیص خودکار ربات');
+  const gBots = (await admin.post('/api/groups', { title: 'گروه ربات‌ها' })).data.group.id;
+
+  r = await admin.post(`/api/groups/${gBots}/entries`, {
+    usernames: '@my_shop_bot\n@news_channel\n@AwesomeBOT\n@daily_digest\n@support_bot',
+  });
+  check('۵ مورد اضافه شد', r.data.added.length === 5, r.data.added.length);
+  check('۳ ربات تشخیص داده شد', r.data.addedBots === 3, r.data.addedBots);
+  check('۲ کانال تشخیص داده شد', r.data.addedChannels === 2, r.data.addedChannels);
+  check('تشخیص به حروف بزرگ/کوچک حساس نیست',
+    r.data.added.find((e) => e.username === 'AwesomeBOT').isBot === true);
+  check('کانال معمولی ربات شمرده نمی‌شود',
+    r.data.added.find((e) => e.username === 'news_channel').isBot === false);
+
+  r = await admin.get(`/api/groups/${gBots}`);
+  check('شمارش ربات در گروه درست است', r.data.group.botCount === 3, r.data.group);
+  check('شمارش کانال در گروه درست است', r.data.group.channelCount === 2, r.data.group);
+  check('جمع کانال و ربات = کل', r.data.group.botCount + r.data.group.channelCount === r.data.group.entryCount);
+
+  // تصحیح دستی: کانالی که به bot ختم می‌شود
+  r = await admin.post(`/api/groups/${gBots}/entries`, { usernames: '@news_robot' });
+  const robot = r.data.added[0];
+  check('news_robot خودکار ربات تشخیص داده می‌شود', robot.isBot === true, robot);
+
+  r = await admin.patch(`/api/entries/${robot.id}`, { type: 'channel' });
+  check('مدیر می‌تواند نوع را به کانال تغییر دهد', r.data.entry.isBot === false, r.data.entry);
+  check('تغییر دستی علامت‌گذاری می‌شود', r.data.entry.typeManual === true, r.data.entry);
+
+  r = await admin.get(`/api/groups/${gBots}`);
+  check('شمارش پس از تصحیح دستی به‌روز شد', r.data.group.channelCount === 3, r.data.group);
+
+  r = await admin.patch(`/api/entries/${robot.id}`, { type: 'auto' });
+  check('بازگشت به تشخیص خودکار', r.data.entry.isBot === true && r.data.entry.typeManual === false, r.data.entry);
+
+  r = await user.patch(`/api/entries/${robot.id}`, { type: 'channel' });
+  check('کاربر عادی نمی‌تواند نوع را تغییر دهد', r.status === 403, r.data);
+
+  r = await admin.patch(`/api/entries/${robot.id}`, { type: 'حرف بی‌ربط' });
+  check('نوع نامعتبر رد می‌شود', r.status === 400, r.data);
+
+  // خروجی تفکیک‌شده
+  r = await admin.get(`/api/groups/${gBots}/export?format=txt&type=bot`);
+  check('خروجی ربات‌ها فقط ربات دارد',
+    r.data.split('\n').every((l) => /bot$/i.test(l)) && r.data.split('\n').length === 4, r.data);
+
+  r = await admin.get(`/api/groups/${gBots}/export?format=txt&type=channel`);
+  check('خروجی کانال‌ها هیچ رباتی ندارد',
+    r.data.split('\n').every((l) => !/bot$/i.test(l)) && r.data.split('\n').length === 2, r.data);
+
+  r = await admin.get(`/api/groups/${gBots}/export?format=txt&type=all`);
+  check('خروجی همه شامل هر دو است', r.data.split('\n').length === 6, r.data);
+
+  r = await admin.get(`/api/groups/${gBots}/export?format=txt&type=bot`);
+  check('نام فایل خروجی ربات‌ها متمایز است',
+    /bots/.test(r.headers.get('content-disposition') || ''), r.headers.get('content-disposition'));
+
+  await admin.del(`/api/groups/${gBots}`, { confirm: 'گروه ربات‌ها' });
+
   // ---- نمرهٔ منفی ----
   section('نمرهٔ منفی و چیدمان');
   r = await user.get(`/api/groups/${g1}`);
@@ -199,20 +258,44 @@ async function run() {
   r = await user.get('/api/settings');
   check('کاربر عادی به تنظیمات دسترسی ندارد', r.status === 403);
 
-  r = await admin.patch('/api/settings', { usersCanViewEntries: false });
-  check('مدیر مشاهدهٔ لیست را می‌بندد', r.data.settings.usersCanViewEntries === false, r.data);
+  // --- حالت «فقط ثبت‌های خودش» ---
+  r = await admin.patch('/api/settings', { usersEntryVisibility: 'own' });
+  check('مدیر دسترسی را روی «فقط خودش» می‌گذارد', r.data.settings.usersEntryVisibility === 'own', r.data);
 
   r = await user.get(`/api/groups/${g1}`);
-  check('حالا کاربر فقط ثبت‌های خودش را می‌بیند', r.data.showingOnlyMine === true, r.data);
+  check('کاربر فقط ثبت‌های خودش را می‌بیند', r.data.showingOnlyMine === true, r.data);
   check('تعداد نمایش‌داده‌شده = ثبت‌های خودش', r.data.entries.length === 3, r.data.entries.length);
 
   r = await user.get(`/api/groups/${g1}/export?format=txt`);
   check('خروجی گرفتن برای کاربر محدود بسته است', r.status === 403);
 
-  r = await user.post(`/api/groups/${g1}/entries`, { usernames: '@crypto_beta' });
-  check('بررسی تکراری حتی با لیست بسته کار می‌کند', r.data.duplicates.length === 1, r.data);
+  // --- حالت «هیچ‌چیز» ---
+  r = await admin.patch('/api/settings', { usersEntryVisibility: 'none' });
+  check('مدیر دسترسی را کاملاً می‌بندد', r.data.settings.usersEntryVisibility === 'none', r.data);
 
-  await admin.patch('/api/settings', { usersCanViewEntries: true });
+  r = await user.get(`/api/groups/${g1}`);
+  check('کاربر هیچ ورودی‌ای نمی‌بیند', r.data.entries.length === 0, r.data.entries.length);
+  check('پرچم visibility برابر none است', r.data.visibility === 'none', r.data.visibility);
+  check('حتی ثبت‌های خودش هم پنهان است', r.data.showingOnlyMine === false, r.data);
+  check('شمارش گروه همچنان نمایش داده می‌شود', r.data.group.entryCount > 0, r.data.group.entryCount);
+
+  r = await user.get('/api/search?q=crypto');
+  check('جست‌وجوی سراسری هم بسته است', r.data.blocked === true && r.data.results.length === 0, r.data);
+
+  r = await user.post(`/api/entries/${target.id}/vote`);
+  check('رأی دادن هم بسته است', r.status === 403, r.data);
+
+  r = await user.post(`/api/groups/${g1}/entries`, { usernames: '@crypto_beta' });
+  check('بررسی تکراری حتی با لیست کاملاً بسته کار می‌کند', r.data.duplicates.length === 1, r.data);
+
+  r = await user.post(`/api/groups/${g1}/entries`, { usernames: '@brand_new_when_blind' });
+  check('کاربر همچنان می‌تواند اضافه کند', r.data.added.length === 1, r.data);
+  await admin.del(`/api/entries/${r.data.added[0].id}`);
+
+  r = await admin.patch('/api/settings', { usersEntryVisibility: 'invalid' });
+  check('مقدار نامعتبر دسترسی رد می‌شود', r.status === 400, r.data);
+
+  await admin.patch('/api/settings', { usersEntryVisibility: 'all' });
 
   // ---- CSRF ----
   section('امنیت');
