@@ -180,6 +180,25 @@ function save() {
   if (saveTimer.unref) saveTimer.unref();
 }
 
+/**
+ * بکاپ فوری و نام‌گذاری‌شده از وضعیت فعلی (قبل از عملیات خطرناک مثل بازگردانی).
+ * برخلاف بکاپ روزانه، این یکی همیشه نوشته می‌شود و پاک نمی‌شود.
+ */
+function snapshot(label = 'manual') {
+  if (!db) return null;
+  ensureDirs();
+  const safe = String(label).replace(/[^a-z0-9-]/gi, '') || 'manual';
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const file = path.join(BACKUP_DIR, `${safe}-${stamp}.json`);
+  try {
+    fs.writeFileSync(file, JSON.stringify(db, null, 2), 'utf8');
+    return file;
+  } catch (err) {
+    console.error('[store] خطا در ساخت بکاپ فوری:', err.message);
+    return null;
+  }
+}
+
 /** ذخیرهٔ فوری (هنگام خاموش شدن سرویس) */
 function flush() {
   if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
@@ -207,5 +226,5 @@ function log(actor, action, detail) {
 
 module.exports = {
   DATA_DIR, DB_FILE, BACKUP_DIR, DEFAULT_SETTINGS,
-  load, get, save, flush, log,
+  load, get, save, flush, log, snapshot,
 };

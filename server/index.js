@@ -15,7 +15,7 @@ const HOST = process.env.HOST || '127.0.0.1';
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const TRUST_PROXY = process.env.TRUST_PROXY !== '0';
 const FORCE_SECURE_COOKIE = process.env.SECURE_COOKIE === '1';
-const MAX_BODY = 2 * 1024 * 1024; // ۲ مگابایت
+const MAX_BODY = 12 * 1024 * 1024; // ۱۲ مگابایت — به اندازهٔ بازگردانی فایل پشتیبان بزرگ
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',

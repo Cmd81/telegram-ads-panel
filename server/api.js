@@ -694,6 +694,7 @@ route('PATCH', '/api/users/:id', async (ctx) => {
     if (problem) fail(400, problem, 'weak_password');
     user.passwordHash = auth.hashPassword(String(ctx.body.password));
     user.mustChangePassword = true;
+    delete user.restored; // حالا رمز دارد، دیگر «نیازمند رمز» نیست
     auth.destroyUserSessions(user.id);
     store.log(admin, 'user_password_reset', `بازنشانی رمز «${user.username}»`);
   }
@@ -771,10 +772,194 @@ route('GET', '/api/logs', async (ctx) => {
 route('GET', '/api/backup', async (ctx) => {
   auth.requireAdmin(ctx);
   const snapshot = JSON.parse(JSON.stringify(db()));
+  // رمزها هرگز داخل فایل بکاپ نمی‌روند
   for (const u of snapshot.users) delete u.passwordHash;
+  snapshot.backupMeta = {
+    createdAt: nowIso(),
+    createdBy: ctx.user.username,
+    app: 'channel-ads',
+    note: 'رمزهای عبور در این فایل نیستند؛ بازگردانی، حساب‌های فعلی را تغییر نمی‌دهد.',
+  };
   const stamp = new Date().toISOString().slice(0, 10);
   ctx.raw(200, JSON.stringify(snapshot, null, 2), 'application/json; charset=utf-8', `backup-${stamp}.json`);
   return null;
+});
+
+/**
+ * بازگردانی از فایل پشتیبان.
+ *
+ * چون فایل بکاپ رمز عبور ندارد، بازگردانی هرگز حساب‌های موجود را دست نمی‌زند —
+ * وگرنه همه از سیستم قفل می‌شدند. کاربرانی که در بکاپ هستند ولی الان وجود ندارند،
+ * در صورت درخواست، به صورت «غیرفعال بدون رمز» ساخته می‌شوند تا مدیر رمزشان را بگذارد.
+ */
+route('POST', '/api/restore', async (ctx) => {
+  const admin = auth.requireAdmin(ctx);
+  const incoming = ctx.body.data;
+  const mode = str(ctx.body.mode, 10) === 'merge' ? 'merge' : 'replace';
+  const withSettings = bool(ctx.body.includeSettings, false);
+  const withUsers = bool(ctx.body.includeUsers, false);
+
+  // --- اعتبارسنجی ---
+  if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
+    fail(400, 'فایل معتبر نیست: ساختار JSON درست نیست.', 'bad_file');
+  }
+  if (!Array.isArray(incoming.groups) || !Array.isArray(incoming.entries)) {
+    fail(400, 'فایل معتبر نیست: کلیدهای groups و entries پیدا نشد.', 'bad_file');
+  }
+  if (incoming.groups.length > 5000 || incoming.entries.length > 200000) {
+    fail(400, 'حجم داده بیش از حد مجاز است.', 'too_large');
+  }
+
+  const validGroups = [];
+  for (const g of incoming.groups) {
+    if (!g || typeof g !== 'object' || !g.id || !g.title) continue;
+    validGroups.push({
+      id: str(g.id, 60),
+      title: str(g.title, 120),
+      description: text(g.description, 2000),
+      adText: text(g.adText, 8000),
+      color: str(g.color, 20) || 'blue',
+      archived: !!g.archived,
+      createdAt: str(g.createdAt, 40) || nowIso(),
+      createdBy: str(g.createdBy, 60) || admin.id,
+      createdByName: str(g.createdByName, 80) || admin.name,
+    });
+  }
+  if (!validGroups.length && incoming.groups.length) {
+    fail(400, 'هیچ گروه معتبری در فایل پیدا نشد.', 'bad_file');
+  }
+
+  const groupIds = new Set(validGroups.map((g) => g.id));
+  const validEntries = [];
+  for (const e of incoming.entries) {
+    if (!e || typeof e !== 'object' || !e.id) continue;
+    const key = str(e.username || e.display, 40).toLowerCase();
+    if (!key || !groupIds.has(e.groupId)) continue;
+    const voters = Array.isArray(e.voters)
+      ? e.voters.filter((v) => v && v.userId).map((v) => ({
+        userId: str(v.userId, 60), userName: str(v.userName, 80), at: str(v.at, 40) || nowIso(),
+      }))
+      : [];
+    const entry = {
+      id: str(e.id, 60),
+      groupId: str(e.groupId, 60),
+      username: key,
+      display: str(e.display || e.username, 40),
+      note: str(e.note, 200),
+      voters,
+      score: -voters.length,
+      addedBy: str(e.addedBy, 60) || admin.id,
+      addedByName: str(e.addedByName, 80) || 'نامشخص',
+      createdAt: str(e.createdAt, 40) || nowIso(),
+    };
+    if (e.type === 'bot' || e.type === 'channel') entry.type = e.type;
+    validEntries.push(entry);
+  }
+
+  // --- پشتیبان خودکار از وضعیت فعلی، قبل از هر تغییر ---
+  const d = db();
+  const before = { groups: d.groups.length, entries: d.entries.length };
+  store.snapshot('pre-restore');
+
+  let addedGroups = 0;
+  let addedEntries = 0;
+  let skippedEntries = 0;
+
+  if (mode === 'replace') {
+    d.groups = validGroups;
+    d.entries = validEntries;
+    addedGroups = validGroups.length;
+    addedEntries = validEntries.length;
+  } else {
+    // ادغام: چیزی حذف نمی‌شود، فقط موارد جدید اضافه می‌شوند
+    const haveGroupIds = new Set(d.groups.map((g) => g.id));
+    const haveTitles = new Set(d.groups.map((g) => g.title.toLowerCase()));
+    for (const g of validGroups) {
+      if (haveGroupIds.has(g.id) || haveTitles.has(g.title.toLowerCase())) continue;
+      d.groups.push(g);
+      haveGroupIds.add(g.id);
+      haveTitles.add(g.title.toLowerCase());
+      addedGroups += 1;
+    }
+    // کلید یکتا: گروه + یوزرنیم
+    const seen = new Set(d.entries.map((e) => `${e.groupId}|${e.username}`));
+    const liveGroupIds = new Set(d.groups.map((g) => g.id));
+    for (const e of validEntries) {
+      const k = `${e.groupId}|${e.username}`;
+      if (seen.has(k) || !liveGroupIds.has(e.groupId)) { skippedEntries += 1; continue; }
+      d.entries.push(e);
+      seen.add(k);
+      addedEntries += 1;
+    }
+  }
+
+  // --- تنظیمات ---
+  if (withSettings && incoming.settings && typeof incoming.settings === 'object') {
+    const s = incoming.settings;
+    if (s.siteName) d.settings.siteName = str(s.siteName, 80);
+    if (['all', 'own', 'none'].includes(s.usersEntryVisibility)) {
+      d.settings.usersEntryVisibility = s.usersEntryVisibility;
+    }
+    if (typeof s.usersCanVote === 'boolean') d.settings.usersCanVote = s.usersCanVote;
+    if (typeof s.usersCanSeeAdText === 'boolean') d.settings.usersCanSeeAdText = s.usersCanSeeAdText;
+    if (typeof s.warnCrossGroupDuplicate === 'boolean') {
+      d.settings.warnCrossGroupDuplicate = s.warnCrossGroupDuplicate;
+    }
+    if (Number.isInteger(s.weakScoreThreshold)) {
+      d.settings.weakScoreThreshold = int(s.weakScoreThreshold, -2, -50, 0);
+    }
+    if (s.timezone) {
+      try { new Intl.DateTimeFormat('en-US', { timeZone: s.timezone }); d.settings.timezone = s.timezone; }
+      catch { /* منطقهٔ زمانی نامعتبر نادیده گرفته می‌شود */ }
+    }
+  }
+
+  // --- کاربران (فقط افزودن، هرگز بازنویسی) ---
+  let addedUsers = 0;
+  if (withUsers && Array.isArray(incoming.users)) {
+    const haveIds = new Set(d.users.map((u) => u.id));
+    const haveNames = new Set(d.users.map((u) => u.username.toLowerCase()));
+    for (const u of incoming.users) {
+      if (!u || !u.username) continue;
+      const uname = str(u.username, 40);
+      if (haveIds.has(u.id) || haveNames.has(uname.toLowerCase())) continue;
+      d.users.push({
+        id: str(u.id, 60) || rid('u'),
+        username: uname,
+        name: str(u.name, 80) || uname,
+        role: u.role === 'admin' ? 'admin' : 'user',
+        // بدون رمز قابل استفاده — مدیر باید رمز بگذارد و فعالش کند
+        passwordHash: 'restored$no-password',
+        active: false,
+        createdAt: str(u.createdAt, 40) || nowIso(),
+        lastLoginAt: null,
+        mustChangePassword: true,
+        restored: true,
+      });
+      haveIds.add(u.id);
+      haveNames.add(uname.toLowerCase());
+      addedUsers += 1;
+    }
+  }
+
+  store.save();
+  store.log(admin, 'restore',
+    `بازگردانی از فایل پشتیبان (${mode === 'replace' ? 'جایگزینی' : 'ادغام'}): `
+    + `${dt.faNum(addedGroups)} گروه، ${dt.faNum(addedEntries)} یوزرنیم`
+    + (addedUsers ? `، ${dt.faNum(addedUsers)} کاربر` : ''));
+
+  return {
+    ok: true,
+    mode,
+    before,
+    after: { groups: d.groups.length, entries: d.entries.length },
+    addedGroups,
+    addedEntries,
+    skippedEntries,
+    addedUsers,
+    ignoredGroups: incoming.groups.length - validGroups.length,
+    ignoredEntries: incoming.entries.length - validEntries.length,
+  };
 });
 
 module.exports = { routes, clientSettings };

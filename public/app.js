@@ -52,6 +52,12 @@ const ICONS = {
   thumbDown: '<path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.7a2 2 0 0 0-2 1.7l-1.4 9A2 2 0 0 0 4.3 15z"/>'
     + '<path d="M17 2h2.7A2.3 2.3 0 0 1 22 4.3v6.4A2.3 2.3 0 0 1 19.7 13H17"/>',
   edit: '<path d="M17 3a2.8 2.8 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5z"/>',
+  download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>'
+    + '<polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
+  upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>'
+    + '<polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>',
+  warn: '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>'
+    + '<line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
 };
 
 /** svg(name) → رشتهٔ SVG آمادهٔ درج. cls برای کلاس اضافی. */
@@ -1264,7 +1270,8 @@ async function viewUsers() {
             ${u.role === 'admin' ? 'مدیر کل' : 'کاربر'}</span></td>
           <td>
             <span class="badge ${u.active ? 'badge-green' : 'badge-red'}">${u.active ? 'فعال' : 'غیرفعال'}</span>
-            ${u.mustChangePassword ? '<span class="badge badge-amber">رمز موقت</span>' : ''}
+            ${u.restored ? '<span class="badge badge-amber" title="از فایل پشتیبان بازگردانی شده — رمز بگذارید و فعالش کنید">نیازمند رمز</span>'
+              : (u.mustChangePassword ? '<span class="badge badge-amber">رمز موقت</span>' : '')}
           </td>
           <td><b>${esc(fa(u.entryCount))}</b></td>
           <td class="faint nowrap" style="font-size:12px">${esc(u.lastLoginLabel)}</td>
@@ -1446,11 +1453,23 @@ async function viewSettings() {
     </div>
 
     <div class="card">
-      <div class="card-title">پشتیبان‌گیری</div>
+      <div class="card-title">پشتیبان‌گیری و بازگردانی</div>
       <p class="muted" style="margin-top:0">
-        سرور هر روز یک نسخهٔ پشتیبان خودکار می‌سازد. برای دریافت نسخهٔ کامل داده‌ها (بدون رمزهای عبور) دکمهٔ زیر را بزنید.
+        سرور هر روز یک نسخهٔ پشتیبان خودکار می‌سازد. برای گرفتن نسخهٔ کامل داده‌ها دکمهٔ زیر را بزنید.
       </p>
-      <button class="btn" id="s-backup">⬇ دانلود نسخهٔ پشتیبان JSON</button>
+      <button class="btn" id="s-backup">${svg('download')} دانلود نسخهٔ پشتیبان</button>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:20px 0">
+
+      <h4 style="margin:0 0 8px;font-size:14px">بازگردانی از فایل پشتیبان</h4>
+      <p class="muted" style="margin-top:0">
+        فایل JSON که قبلاً دانلود کرده‌اید را انتخاب کنید. قبل از هر تغییر،
+        یک نسخهٔ پشتیبان خودکار از وضعیت فعلی ساخته می‌شود.
+      </p>
+      <input type="file" id="s-restore-file" accept=".json,application/json"
+             style="padding:8px;background:var(--bg-soft);border:1px dashed var(--border);
+                    border-radius:var(--radius-sm);width:100%;cursor:pointer">
+      <div id="s-restore-info" style="margin-top:12px"></div>
     </div>
 
     <div class="card">
@@ -1487,6 +1506,131 @@ async function viewSettings() {
   };
 
   $('#s-backup').onclick = () => download('/api/backup');
+  $('#s-restore-file').onchange = (e) => previewRestore(e.target.files[0]);
+}
+
+/** خواندن فایل انتخاب‌شده، نمایش خلاصه و گرفتن تأیید قبل از بازگردانی */
+async function previewRestore(file) {
+  const box = $('#s-restore-info');
+  if (!file) { box.innerHTML = ''; return; }
+
+  box.innerHTML = '<div class="loading" style="padding:20px"><span class="spinner"></span></div>';
+
+  let data;
+  try {
+    const raw = await file.text();
+    data = JSON.parse(raw);
+  } catch {
+    box.innerHTML = `<div class="alert alert-red">${svg('warn', 'ico')}
+      فایل قابل خواندن نیست — مطمئن شوید همان فایل JSON دانلودشده است.</div>`;
+    return;
+  }
+
+  if (!data || !Array.isArray(data.groups) || !Array.isArray(data.entries)) {
+    box.innerHTML = `<div class="alert alert-red">${svg('warn', 'ico')}
+      ساختار فایل درست نیست: کلیدهای <span class="mono">groups</span> و
+      <span class="mono">entries</span> پیدا نشد.</div>`;
+    return;
+  }
+
+  const when = data.backupMeta?.createdAt
+    ? new Date(data.backupMeta.createdAt).toLocaleString('fa-IR')
+    : null;
+  const userCount = Array.isArray(data.users) ? data.users.length : 0;
+
+  box.innerHTML = `
+    <div class="alert alert-accent" style="margin-bottom:14px">
+      <b>${esc(file.name)}</b> خوانده شد.
+      ${when ? `<br>تاریخ ساخت بکاپ: ${esc(when)}` : ''}
+      <div class="result-list" style="margin-top:8px">
+        <div><span>گروه‌ها</span><b>${esc(fa(data.groups.length))}</b></div>
+        <div><span>یوزرنیم‌ها</span><b>${esc(fa(data.entries.length))}</b></div>
+        <div><span>کاربران</span><b>${esc(fa(userCount))}</b></div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>روش بازگردانی</label>
+      <select id="rs-mode">
+        <option value="merge">ادغام — فقط موارد جدید اضافه شوند (چیزی حذف نمی‌شود)</option>
+        <option value="replace">جایگزینی کامل — همهٔ گروه‌ها و یوزرنیم‌های فعلی با فایل عوض شوند</option>
+      </select>
+    </div>
+
+    <label class="switch">
+      <input type="checkbox" id="rs-settings">
+      <span class="track"></span>
+      <span><span class="switch-label">بازگردانی تنظیمات</span><br>
+      <span class="switch-desc">نام داشبورد، منطقهٔ زمانی و سطح دسترسی کاربران</span></span>
+    </label>
+
+    ${userCount ? `
+      <label class="switch">
+        <input type="checkbox" id="rs-users">
+        <span class="track"></span>
+        <span><span class="switch-label">بازگردانی کاربران</span><br>
+        <span class="switch-desc">
+          فایل پشتیبان رمز عبور ندارد. کاربرانی که الان وجود ندارند
+          <b>غیرفعال و بدون رمز</b> ساخته می‌شوند تا خودتان رمزشان را بگذارید.
+          حساب‌های فعلی هرگز تغییر نمی‌کنند.
+        </span></span>
+      </label>` : ''}
+
+    <div id="rs-warning"></div>
+    <button class="btn btn-primary mt" id="rs-go">${svg('upload')} بازگردانی</button>`;
+
+  const modeSel = $('#rs-mode');
+  const warnBox = $('#rs-warning');
+  const showWarning = () => {
+    warnBox.innerHTML = modeSel.value === 'replace'
+      ? `<div class="alert alert-red mt">${svg('warn', 'ico')}
+           <b>هشدار:</b> همهٔ گروه‌ها و یوزرنیم‌های فعلی حذف و با محتوای فایل جایگزین می‌شوند.
+           (یک نسخهٔ پشتیبان خودکار قبلش ساخته می‌شود.)</div>`
+      : '';
+  };
+  modeSel.onchange = showWarning;
+  showWarning();
+
+  $('#rs-go').onclick = () => {
+    const mode = modeSel.value;
+    const body = {
+      data,
+      mode,
+      includeSettings: $('#rs-settings').checked,
+      includeUsers: $('#rs-users') ? $('#rs-users').checked : false,
+    };
+
+    const run = async () => {
+      const r = await api('/api/restore', { method: 'POST', body });
+      const lines = [
+        `گروه‌های اضافه‌شده: <b>${fa(r.addedGroups)}</b>`,
+        `یوزرنیم‌های اضافه‌شده: <b>${fa(r.addedEntries)}</b>`,
+      ];
+      if (r.skippedEntries) lines.push(`تکراری و رد شده: <b>${fa(r.skippedEntries)}</b>`);
+      if (r.addedUsers) lines.push(`کاربران اضافه‌شده (غیرفعال): <b>${fa(r.addedUsers)}</b>`);
+      if (r.ignoredEntries) lines.push(`رکورد ناقص و نادیده‌گرفته‌شده: <b>${fa(r.ignoredEntries)}</b>`);
+      lines.push(`وضعیت نهایی: <b>${fa(r.after.groups)}</b> گروه و <b>${fa(r.after.entries)}</b> یوزرنیم`);
+
+      toast('بازگردانی انجام شد.', 'success');
+      $('#s-restore-info').innerHTML =
+        `<div class="alert alert-green">✅ بازگردانی کامل شد.<br>${lines.join('<br>')}</div>`;
+      $('#s-restore-file').value = '';
+      S.cache.groups = null;
+    };
+
+    if (mode === 'replace') {
+      confirmModal({
+        title: 'جایگزینی کامل داده‌ها',
+        message: 'همهٔ گروه‌ها و یوزرنیم‌های فعلی حذف و با محتوای فایل جایگزین می‌شوند.'
+          + '<br>برای تأیید، عبارت زیر را تایپ کنید.',
+        confirmLabel: 'جایگزین کن',
+        requireText: 'جایگزینی',
+        onConfirm: run,
+      });
+    } else {
+      run().catch((err) => toast(err.message, 'error'));
+    }
+  };
 }
 
 // ---------------------------------------------------------------------------

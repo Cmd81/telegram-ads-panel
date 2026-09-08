@@ -456,6 +456,110 @@ async function run() {
   r = await admin.get('/api/logs');
   check('تاریخچهٔ فعالیت ثبت شده', r.data.logs.length > 5, r.data.logs.length);
 
+  // ---- بازگردانی از فایل پشتیبان ----
+  section('بازگردانی از فایل پشتیبان');
+  const backup = (await admin.get('/api/backup')).data;
+  const snapBefore = (await admin.get('/api/stats')).data.totals;
+  check('فایل پشتیبان اطلاعات ساخت دارد', !!backup.backupMeta && !!backup.backupMeta.createdAt, backup.backupMeta);
+  check('فایل پشتیبان رمز ندارد', backup.users.every((u) => u.passwordHash === undefined));
+
+  // ادغام روی همان داده → نباید چیزی اضافه شود
+  r = await admin.post('/api/restore', { data: backup, mode: 'merge' });
+  check('ادغام دادهٔ یکسان چیزی اضافه نمی‌کند',
+    r.data.addedGroups === 0 && r.data.addedEntries === 0, r.data);
+  check('همه به عنوان تکراری رد شدند', r.data.skippedEntries === backup.entries.length, r.data);
+
+  r = await admin.get('/api/stats');
+  check('تعداد بعد از ادغام تغییر نکرد', r.data.totals.entries === snapBefore.entries, r.data.totals);
+
+  // یک گروه جدید بساز، بعد جایگزینی کامل با بکاپ قدیمی
+  const tempG = (await admin.post('/api/groups', { title: 'گروه موقت قبل از بازگردانی' })).data.group.id;
+  await admin.post(`/api/groups/${tempG}/entries`, { usernames: '@will_be_gone_after' });
+  r = await admin.get('/api/stats');
+  check('گروه موقت اضافه شد', r.data.totals.groups === snapBefore.groups + 1, r.data.totals);
+
+  r = await admin.post('/api/restore', { data: backup, mode: 'replace' });
+  check('جایگزینی کامل انجام شد', r.status === 200 && r.data.mode === 'replace', r.data);
+  check('تعداد به حالت بکاپ برگشت',
+    r.data.after.groups === backup.groups.length && r.data.after.entries === backup.entries.length, r.data.after);
+
+  r = await admin.get('/api/groups');
+  check('گروه موقت حذف شد', !r.data.groups.some((g) => g.title === 'گروه موقت قبل از بازگردانی'),
+    r.data.groups.map((g) => g.title));
+
+  r = await admin.get('/api/search?q=will_be_gone');
+  check('یوزرنیم گروه موقت هم پاک شد', r.data.results.length === 0, r.data.results);
+
+  // ورود بعد از بازگردانی باید همچنان کار کند (رمزها دست نخورده)
+  const afterRestore = makeClient(base);
+  r = await afterRestore.post('/api/login', { username: 'admin', password: 'AdminPass!2024' });
+  check('مدیر بعد از بازگردانی همچنان وارد می‌شود', r.status === 200, r.data);
+
+  // فایل‌های نامعتبر
+  r = await admin.post('/api/restore', { data: { hello: 'world' } });
+  check('فایل بدون groups/entries رد می‌شود', r.status === 400, r.data);
+  r = await admin.post('/api/restore', { data: 'یک رشته' });
+  check('ورودی غیرشیء رد می‌شود', r.status === 400, r.data);
+  r = await admin.post('/api/restore', { data: { groups: [{ id: 'g1', title: 'ok' }], entries: 'نه آرایه' } });
+  check('entries غیرآرایه رد می‌شود', r.status === 400, r.data);
+
+  // رکوردهای ناقص باید نادیده گرفته شوند نه اینکه کل عملیات بشکند
+  r = await admin.post('/api/restore', {
+    mode: 'merge',
+    data: {
+      groups: [{ id: 'g_ok', title: 'گروه سالم' }, { id: '', title: '' }, null],
+      entries: [
+        { id: 'e_ok', groupId: 'g_ok', username: 'valid_one', display: 'valid_one' },
+        { id: 'e_bad', groupId: 'ناموجود', username: 'orphan_entry' },
+        { id: 'e_none' },
+      ],
+    },
+  });
+  check('گروه سالم اضافه شد', r.data.addedGroups === 1, r.data);
+  check('فقط ورودی سالم اضافه شد', r.data.addedEntries === 1, r.data);
+  check('رکوردهای ناقص شمرده شدند', r.data.ignoredGroups === 2 && r.data.ignoredEntries === 2, r.data);
+
+  // کاربران
+  r = await admin.post('/api/restore', {
+    mode: 'merge',
+    data: {
+      groups: [], entries: [],
+      users: [
+        { id: 'u_new1', username: 'restored_user', name: 'کاربر بازگردانی‌شده', role: 'user' },
+        { id: 'u_x', username: 'admin', name: 'تکراری', role: 'admin' },
+      ],
+    },
+    includeUsers: true,
+  });
+  check('فقط کاربر جدید اضافه شد', r.data.addedUsers === 1, r.data);
+
+  r = await admin.get('/api/users');
+  const restoredU = r.data.users.find((u) => u.username === 'restored_user');
+  check('کاربر بازگردانی‌شده غیرفعال است', restoredU && restoredU.active === false, restoredU);
+  check('کاربر بازگردانی‌شده علامت خورده', restoredU && restoredU.restored === true, restoredU);
+
+  const cantLogin = makeClient(base);
+  r = await cantLogin.post('/api/login', { username: 'restored_user', password: 'هر رمزی' });
+  check('کاربر بازگردانی‌شده نمی‌تواند وارد شود', r.status !== 200, r.status);
+
+  r = await admin.patch(`/api/users/${restoredU.id}`, { password: 'FreshPass!2024', active: true });
+  check('مدیر رمز می‌گذارد و فعالش می‌کند', r.status === 200, r.data);
+  r = await admin.get('/api/users');
+  check('علامت «نیازمند رمز» برداشته شد',
+    r.data.users.find((u) => u.username === 'restored_user').restored === false);
+
+  const nowLogin = makeClient(base);
+  r = await nowLogin.post('/api/login', { username: 'restored_user', password: 'FreshPass!2024' });
+  check('حالا می‌تواند وارد شود', r.status === 200, r.data);
+
+  // دسترسی
+  r = await user.post('/api/restore', { data: backup });
+  check('کاربر عادی نمی‌تواند بازگردانی کند', r.status === 403, r.data);
+
+  // بکاپ خودکار قبل از بازگردانی
+  const snaps = fs.readdirSync(path.join(TMP, 'backups')).filter((f) => f.startsWith('pre-restore'));
+  check('بکاپ خودکار قبل از بازگردانی ساخته شد', snaps.length >= 1, snaps);
+
   // ---- خروج ----
   section('خروج');
   r = await user.post('/api/logout');

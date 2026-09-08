@@ -243,6 +243,7 @@ function publicUser(u) {
     createdAt: u.createdAt,
     lastLoginAt: u.lastLoginAt || null,
     mustChangePassword: !!u.mustChangePassword,
+    restored: !!u.restored,
   };
 }
 
