@@ -81,17 +81,17 @@
 
 ```bash
 curl -fsSL -H "Authorization: token ghp_YOUR_TOKEN" \
-  https://raw.githubusercontent.com/OWNER/REPO/main/install.sh \
-  | sudo GITHUB_TOKEN=ghp_YOUR_TOKEN GITHUB_REPO=OWNER/REPO bash
+  https://raw.githubusercontent.com/Cmd81/telegram-ads-panel/main/install.sh \
+  | sudo GITHUB_TOKEN=ghp_YOUR_TOKEN GITHUB_REPO=Cmd81/telegram-ads-panel bash
 ```
 
-> `OWNER/REPO` را با نام کاربری و نام مخزن خودتان جایگزین کنید.
+> `ghp_YOUR_TOKEN` را با توکنی که در مرحلهٔ قبل ساختید جایگزین کنید.
 
 ### روش ۲ — کلون و نصب
 
 ```bash
-git clone https://github.com/OWNER/REPO.git
-cd REPO
+git clone https://github.com/Cmd81/telegram-ads-panel.git
+cd telegram-ads-panel
 sudo bash install.sh
 ```
 
@@ -197,7 +197,7 @@ sudo journalctl -u channel-ads -n 100  # ۱۰۰ خط آخر لاگ
 ### به‌روزرسانی
 
 ```bash
-sudo GITHUB_TOKEN=ghp_YOUR_TOKEN GITHUB_REPO=OWNER/REPO \
+sudo GITHUB_TOKEN=ghp_YOUR_TOKEN GITHUB_REPO=Cmd81/telegram-ads-panel \
      bash /opt/channel-ads/update.sh
 ```
 
