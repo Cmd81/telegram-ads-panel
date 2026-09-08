@@ -1,0 +1,16 @@
+# پیش‌فرض: پایان خط در مخزن همیشه LF
+* text=auto eol=lf
+
+# اسکریپت‌های شل باید حتماً LF باشند وگرنه روی لینوکس اجرا نمی‌شوند
+*.sh   text eol=lf
+*.js   text eol=lf
+*.json text eol=lf
+*.css  text eol=lf
+*.html text eol=lf
+*.md   text eol=lf
+*.svg  text eol=lf
+
+# فایل‌های باینری
+*.png binary
+*.jpg binary
+*.woff2 binary

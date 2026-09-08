@@ -1,0 +1,16 @@
+# داده‌های زنده (هرگز داخل مخزن نرود)
+data/
+data-demo/
+*.log
+
+# محیط
+.env
+.env.*
+!.env.example
+
+# سیستمی
+node_modules/
+.DS_Store
+Thumbs.db
+*.swp
+*.tmp
