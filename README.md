@@ -69,23 +69,15 @@
 - دسترسی `root` یا `sudo`
 - یک دامنه یا زیردامنه که رکورد `A` آن به IP سرور اشاره کند (اختیاری ولی توصیه‌شده)
 
-### روش ۱ — نصب مستقیم (توصیه‌شده)
+### روش ۱ — نصب تک‌خطی (توصیه‌شده)
 
-چون مخزن خصوصی است، به یک **توکن دسترسی گیت‌هاب** نیاز دارید:
-
-1. به <https://github.com/settings/tokens> بروید
-2. **Generate new token (classic)** را بزنید و دسترسی `repo` را تیک بزنید
-3. توکن ساخته‌شده را کپی کنید (با `ghp_` شروع می‌شود)
-
-سپس روی سرور:
+این دستور را روی سرور اجرا کنید:
 
 ```bash
-curl -fsSL -H "Authorization: token ghp_YOUR_TOKEN" \
-  https://raw.githubusercontent.com/Cmd81/telegram-ads-panel/main/install.sh \
-  | sudo GITHUB_TOKEN=ghp_YOUR_TOKEN GITHUB_REPO=Cmd81/telegram-ads-panel bash
+curl -fsSL https://raw.githubusercontent.com/Cmd81/telegram-ads-panel/main/install.sh | sudo GITHUB_REPO=Cmd81/telegram-ads-panel bash
 ```
 
-> `ghp_YOUR_TOKEN` را با توکنی که در مرحلهٔ قبل ساختید جایگزین کنید.
+اسکریپت دامنه، ایمیل، پورت و رمز مدیر را می‌پرسد و بقیهٔ کارها را خودش انجام می‌دهد.
 
 ### روش ۲ — کلون و نصب
 
@@ -93,6 +85,17 @@ curl -fsSL -H "Authorization: token ghp_YOUR_TOKEN" \
 git clone https://github.com/Cmd81/telegram-ads-panel.git
 cd telegram-ads-panel
 sudo bash install.sh
+```
+
+### روش ۳ — نصب از یک fork خصوصی
+
+اگر مخزن را fork خصوصی کرده‌اید، به یک توکن دسترسی نیاز دارید
+(<https://github.com/settings/tokens> ← **Generate new token (classic)** ← تیک `repo`):
+
+```bash
+curl -fsSL -H "Authorization: token ghp_YOUR_TOKEN" \
+  https://raw.githubusercontent.com/YOUR_NAME/YOUR_FORK/main/install.sh \
+  | sudo GITHUB_TOKEN=ghp_YOUR_TOKEN GITHUB_REPO=YOUR_NAME/YOUR_FORK bash
 ```
 
 ### در حین نصب چه چیزهایی پرسیده می‌شود
@@ -197,9 +200,10 @@ sudo journalctl -u channel-ads -n 100  # ۱۰۰ خط آخر لاگ
 ### به‌روزرسانی
 
 ```bash
-sudo GITHUB_TOKEN=ghp_YOUR_TOKEN GITHUB_REPO=Cmd81/telegram-ads-panel \
-     bash /opt/channel-ads/update.sh
+sudo GITHUB_REPO=Cmd81/telegram-ads-panel bash /opt/channel-ads/update.sh
 ```
+
+> اگر از یک fork خصوصی نصب کرده‌اید، `GITHUB_TOKEN=ghp_...` را هم اضافه کنید.
 
 قبل از هر چیز بکاپ می‌گیرد، و اگر نسخهٔ جدید بالا نیامد **خودکار به نسخهٔ قبلی برمی‌گردد**.
 پوشهٔ `data/` و فایل `app.env` هرگز دست نمی‌خورند.
@@ -378,4 +382,5 @@ sudo systemctl restart channel-ads && sudo systemctl reload nginx
 
 ## پروانه
 
-استفادهٔ داخلی — مخزن خصوصی.
+تمام حقوق محفوظ است. کد به صورت عمومی قابل مشاهده است اما پروانهٔ استفادهٔ مجددی صادر نشده.
+اگر می‌خواهید دیگران آزادانه استفاده کنند، یک فایل `LICENSE` (مثلاً MIT) به مخزن اضافه کنید.
