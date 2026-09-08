@@ -11,6 +11,7 @@
 
 - [امکانات](#امکانات)
 - [نصب روی سرور اوبونتو](#نصب-روی-سرور-اوبونتو)
+- [نصب پشت وب‌سرور موجود (Docker)](#نصب-روی-سروری-که-از-قبل-وبسرور-دارد)
 - [نقش‌ها و دسترسی‌ها](#نقشها-و-دسترسیها)
 - [نحوهٔ کار با داشبورد](#نحوهٔ-کار-با-داشبورد)
 - [مدیریت سرویس](#مدیریت-سرویس)
@@ -129,6 +130,69 @@ sudo NON_INTERACTIVE=1 \
 - ✅ اگر Caddy یا Apache نصب باشد، تنظیمات آماده را چاپ می‌کند تا خودتان اضافه کنید
 - ✅ قبل از هر نصب مجدد، از دیتابیس بکاپ می‌گیرد
 - ✅ اگر پورت اشغال باشد یا تنظیمات nginx خراب شود، تغییرات را برمی‌گرداند
+
+---
+
+### نصب روی سروری که از قبل وب‌سرور دارد
+
+اگر پورت ۸۰ در اختیار سرویس دیگری باشد (مثلاً nginx داخل Docker یا Traefik)،
+نصب‌کننده **این را تشخیص می‌دهد و nginx نصب نمی‌کند** تا سرویس فعلی شما دست نخورد.
+در این حالت برنامه روی پورت داخلی بالا می‌آید و تنظیمات آمادهٔ پروکسی چاپ می‌شود.
+
+**اگر پروکسی شما داخل Docker است**، کانتینر نمی‌تواند به `127.0.0.1` هاست برسد.
+مقدار `HOST` را به آدرس gateway شبکهٔ داکر تغییر دهید:
+
+```bash
+# آدرس gateway را پیدا کنید (معمولاً 172.17.0.1)
+ip -4 -o addr show docker0 | awk '{print $4}'
+
+sudo sed -i 's/^HOST=.*/HOST=172.17.0.1/' /opt/channel-ads/app.env
+sudo systemctl restart channel-ads
+```
+
+این آدرس از اینترنت در دسترس نیست، پس برنامه فقط از طریق پروکسی شما قابل دسترسی می‌ماند.
+سپس این بلوک را به کانفیگ nginx خود اضافه کنید (**اول از کانفیگ بکاپ بگیرید**):
+
+```nginx
+server {
+    listen 80;
+    server_name ads.example.com;
+    location /.well-known/acme-challenge/ { root /var/www/certbot; }
+    location / { return 301 https://$host$request_uri; }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name ads.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/ads.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/ads.example.com/privkey.pem;
+
+    client_max_body_size 4M;
+
+    location / {
+        proxy_pass http://172.17.0.1:8787;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+بلوک ۴۴۳ را **بعد از** گرفتن گواهی اضافه کنید، وگرنه nginx به خاطر نبود فایل گواهی بالا نمی‌آید.
+برای گرفتن گواهی با certbot داخل داکر (نام volume ها را با مال خودتان جایگزین کنید):
+
+```bash
+docker run --rm -v certbot-conf:/etc/letsencrypt -v certbot-www:/var/www/certbot \
+  certbot/certbot certonly --webroot -w /var/www/certbot \
+  -d ads.example.com --email you@example.com --agree-tos --no-eff-email --non-interactive
+```
+
+> ⚠️ اگر روزی شبکهٔ داکر بازسازی شود (`docker compose down` و بالا آوردن مجدد)، ممکن است
+> آدرس gateway عوض شود. در آن صورت `HOST` در `app.env` و `proxy_pass` را با آدرس جدید هماهنگ کنید.
 
 ---
 
