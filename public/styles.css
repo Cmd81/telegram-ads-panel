@@ -344,7 +344,55 @@ tbody tr.selected { background: var(--accent-soft); }
   font-family: 'JetBrains Mono', Consolas, monospace;
   direction: ltr; display: inline-block; font-size: 13px;
 }
-.row-actions { display: flex; gap: 4px; justify-content: flex-start; }
+.row-actions { display: flex; gap: 3px; justify-content: flex-start; }
+
+/* ---------- دکمه‌های آیکونی ---------- */
+
+.icon-btn {
+  display: inline-grid; place-items: center;
+  width: 30px; height: 30px; padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+  flex: none;
+}
+.icon-btn:hover:not(:disabled) {
+  background: var(--panel-2);
+  color: var(--text);
+  border-color: var(--border);
+}
+.icon-btn:active:not(:disabled) { transform: scale(.94); }
+.icon-btn:disabled { opacity: .4; cursor: not-allowed; }
+.icon-btn svg { width: 15px; height: 15px; display: block; }
+
+.icon-btn.copy:hover:not(:disabled) {
+  background: var(--accent-soft); color: var(--accent); border-color: transparent;
+}
+.icon-btn.copy.done {
+  background: var(--green-soft); color: var(--green); border-color: transparent;
+}
+.icon-btn.danger:hover:not(:disabled) {
+  background: var(--red-soft); color: var(--red); border-color: transparent;
+}
+.icon-btn.swap:hover:not(:disabled) {
+  background: var(--purple-soft); color: var(--purple); border-color: transparent;
+}
+
+/* آیکون درون‌خطی برای برچسب‌ها و تب‌ها */
+.ico {
+  width: 14px; height: 14px;
+  vertical-align: -2px;
+  display: inline-block;
+  flex: none;
+}
+.tabs button .ico { margin-left: 5px; }
+
+/* ردیفی که همین حالا کپی شد */
+tbody tr.just-copied { background: var(--green-soft); }
+tbody tr.just-copied td:first-child { box-shadow: inset 2px 0 0 var(--green); }
 
 .score-btn {
   display: inline-flex; align-items: center; gap: 5px;

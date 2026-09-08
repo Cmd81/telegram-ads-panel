@@ -28,6 +28,39 @@ function fa(n) {
   return String(n).replace(/[0-9]/g, (c) => '۰۱۲۳۴۵۶۷۸۹'[Number(c)]);
 }
 
+// ---------------------------------------------------------------------------
+// آیکون‌ها (SVG درون‌خطی — با رنگ متن هماهنگ می‌شوند و در هر تمی خوانا هستند)
+// ---------------------------------------------------------------------------
+
+const ICONS = {
+  copy: '<rect x="9" y="9" width="12" height="12" rx="2"/>'
+    + '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+  check: '<polyline points="20 6 9 17 4 12"/>',
+  trash: '<path d="M3 6h18"/>'
+    + '<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>'
+    + '<path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>'
+    + '<path d="M10 11v6M14 11v6"/>',
+  reset: '<polyline points="1 4 1 10 7 10"/>'
+    + '<path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>',
+  bot: '<rect x="4" y="8" width="16" height="12" rx="2"/>'
+    + '<path d="M12 8V5"/><circle cx="12" cy="3" r="1.6"/>'
+    + '<path d="M2 13v3M22 13v3"/>'
+    + '<path d="M9 13.5v1M15 13.5v1"/>',
+  channel: '<path d="M3 11v2a1 1 0 0 0 1 1h2l4 4V6L6 10H4a1 1 0 0 0-1 1z"/>'
+    + '<path d="M15.5 8.8a4.5 4.5 0 0 1 0 6.4"/>'
+    + '<path d="M18.6 5.7a9 9 0 0 1 0 12.6"/>',
+  thumbDown: '<path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.7a2 2 0 0 0-2 1.7l-1.4 9A2 2 0 0 0 4.3 15z"/>'
+    + '<path d="M17 2h2.7A2.3 2.3 0 0 1 22 4.3v6.4A2.3 2.3 0 0 1 19.7 13H17"/>',
+  edit: '<path d="M17 3a2.8 2.8 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5z"/>',
+};
+
+/** svg(name) → رشتهٔ SVG آمادهٔ درج. cls برای کلاس اضافی. */
+function svg(name, cls = '') {
+  return `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+    aria-hidden="true" focusable="false">${ICONS[name] || ''}</svg>`;
+}
+
 function initials(name) {
   const parts = String(name || '؟').trim().split(/\s+/);
   return (parts[0][0] || '؟') + (parts[1] ? parts[1][0] : '');
@@ -83,6 +116,49 @@ function download(url) {
   document.body.appendChild(a);
   a.click();
   a.remove();
+}
+
+/** کپی بی‌صدا (بدون توست) — برای دکمهٔ تک‌تک ردیف‌ها */
+async function copyQuiet(value) {
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = value;
+    ta.style.cssText = 'position:fixed;opacity:0;pointer-events:none';
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch { ok = false; }
+    ta.remove();
+    return ok;
+  }
+}
+
+/**
+ * دکمهٔ کپی هر ردیف: بعد از کپی، آیکون به تیک تبدیل می‌شود و ردیف کوتاه
+ * سبز می‌شود — تا موقع وارد کردن دونه‌دونه در پنل تبلیغات جای خود را گم نکنید.
+ */
+function bindCopyButtons(root) {
+  $$('[data-copy]', root).forEach((btn) => {
+    btn.onclick = async () => {
+      if (!await copyQuiet(btn.dataset.copy)) {
+        toast('مرورگر اجازهٔ کپی نداد.', 'error');
+        return;
+      }
+      const row = btn.closest('tr');
+      btn.classList.add('done');
+      btn.innerHTML = svg('check');
+      if (row) row.classList.add('just-copied');
+      clearTimeout(btn._copyTimer);
+      btn._copyTimer = setTimeout(() => {
+        btn.classList.remove('done');
+        btn.innerHTML = svg('copy');
+        if (row) row.classList.remove('just-copied');
+      }, 1400);
+    };
+  });
 }
 
 async function copyText(value, message = 'کپی شد.') {
@@ -466,8 +542,8 @@ async function viewGroups() {
       </div>
       <p class="desc">${esc(g.description || 'بدون توضیحات')}</p>
       <div class="meta">
-        <span>📢 <b>${esc(fa(g.channelCount))}</b></span>
-        <span>🤖 <b>${esc(fa(g.botCount))}</b></span>
+        <span title="کانال‌ها">${svg('channel', 'ico')} <b>${esc(fa(g.channelCount))}</b></span>
+        <span title="ربات‌ها">${svg('bot', 'ico')} <b>${esc(fa(g.botCount))}</b></span>
         ${g.negativeCount ? `<span class="badge badge-red">${fa(g.negativeCount)} منفی</span>` : ''}
         ${!data.canViewEntries ? `<span>سهم من: <b>${esc(fa(g.myCount))}</b></span>` : ''}
         ${g.lastAddedLabel ? `<span style="margin-right:auto">آخرین: ${esc(g.lastAddedLabel.split(' ساعت')[0])}</span>` : ''}
@@ -598,13 +674,15 @@ async function viewGroup() {
         ${isAdmin ? `
           <button class="btn" id="edit-group">✏️ ویرایش</button>
           <button class="btn" id="archive-group">${g.archived ? '📤 خروج از بایگانی' : '📥 بایگانی'}</button>
-          <button class="btn btn-danger" id="delete-group">🗑 حذف گروه</button>` : ''}
+          <button class="btn btn-danger" id="delete-group">${svg('trash')} حذف گروه</button>` : ''}
       </div>
     </div>
 
     <div class="grid grid-stats" style="margin-bottom:18px">
-      <div class="stat"><div class="label">📢 کانال‌ها</div><div class="value accent">${esc(fa(g.channelCount))}</div></div>
-      <div class="stat"><div class="label">🤖 ربات‌ها</div><div class="value" style="color:var(--purple)">${esc(fa(g.botCount))}</div></div>
+      <div class="stat"><div class="label">${svg('channel', 'ico')} کانال‌ها</div>
+        <div class="value accent">${esc(fa(g.channelCount))}</div></div>
+      <div class="stat"><div class="label">${svg('bot', 'ico')} ربات‌ها</div>
+        <div class="value" style="color:var(--purple)">${esc(fa(g.botCount))}</div></div>
       <div class="stat"><div class="label">سالم</div><div class="value green">${esc(fa(g.entryCount - g.negativeCount))}</div></div>
       <div class="stat"><div class="label">دارای نمرهٔ منفی</div><div class="value red">${esc(fa(g.negativeCount))}</div></div>
       <div class="stat"><div class="label">ثبت‌شده توسط من</div><div class="value">${esc(fa(g.myCount))}</div></div>
@@ -669,8 +747,10 @@ async function viewGroup() {
         </div>` : ''}
 
       <div class="tabs" id="type-tabs" style="margin-bottom:14px">
-        <button data-t="channel">📢 کانال‌ها <span class="badge badge-gray" id="cnt-channel">۰</span></button>
-        <button data-t="bot">🤖 ربات‌ها <span class="badge badge-gray" id="cnt-bot">۰</span></button>
+        <button data-t="channel">${svg('channel', 'ico')} کانال‌ها
+          <span class="badge badge-gray" id="cnt-channel">۰</span></button>
+        <button data-t="bot">${svg('bot', 'ico')} ربات‌ها
+          <span class="badge badge-gray" id="cnt-bot">۰</span></button>
         <button data-t="all">همه <span class="badge badge-gray" id="cnt-all">۰</span></button>
       </div>
 
@@ -803,27 +883,34 @@ function renderEntries() {
     <tr data-id="${esc(e.id)}" class="${e.score <= threshold ? 'weak' : ''}">
       ${isAdmin ? `<td style="width:32px"><input type="checkbox" class="pick" data-id="${esc(e.id)}" style="width:auto"></td>` : ''}
       <td class="faint nowrap" style="width:40px">${esc(fa(i + 1))}</td>
+      <td style="width:38px">
+        <button class="icon-btn copy" data-copy="@${esc(e.username)}"
+                title="کپی @${esc(e.username)}" aria-label="کپی یوزرنیم">${svg('copy')}</button>
+      </td>
       <td>
         <a class="uname" href="${esc(e.link)}" target="_blank" rel="noopener noreferrer">@${esc(e.username)}</a>
         ${type === 'all' ? `<span class="badge ${e.isBot ? 'badge-purple' : 'badge-accent'}"
-          style="margin-right:6px">${e.isBot ? '🤖 ربات' : '📢 کانال'}</span>` : ''}
+          style="margin-right:6px">${svg(e.isBot ? 'bot' : 'channel', 'ico')} ${e.isBot ? 'ربات' : 'کانال'}</span>` : ''}
         ${e.typeManual ? '<span class="badge badge-gray" title="نوع دستی تعیین شده">دستی</span>' : ''}
         ${e.note ? `<div class="faint" style="font-size:11.5px">${esc(e.note)}</div>` : ''}
       </td>
-      <td style="width:90px">
+      <td style="width:86px">
         <button class="score-btn ${e.votedByMe ? 'voted' : ''} ${e.score < 0 ? 'negative' : ''}"
                 data-vote="${esc(e.id)}" ${canVote ? '' : 'disabled'}
                 title="${e.score < 0 ? `نمره: ${fa(e.score)} — ` : ''}${e.votedByMe ? 'برای پس گرفتن رأی خود کلیک کنید' : 'ثبت نمرهٔ منفی'}">
-          👎 ${esc(fa(e.voteCount))}
+          ${svg('thumbDown', 'ico')} ${esc(fa(e.voteCount))}
         </button>
       </td>
       <td class="faint nowrap" style="width:130px">${esc(e.addedByName)}</td>
       <td class="faint nowrap" style="width:160px">${esc(e.createdAtLabel.replace(' ساعت', '،'))}</td>
-      ${isAdmin ? `<td style="width:110px"><div class="row-actions">
-        <button class="btn btn-ghost btn-sm" data-type="${esc(e.id)}"
-                title="${e.isBot ? 'تبدیل به کانال' : 'تبدیل به ربات'}">${e.isBot ? '📢' : '🤖'}</button>
-        <button class="btn btn-ghost btn-sm" data-reset="${esc(e.id)}" title="صفر کردن نمره">↺</button>
-        <button class="btn btn-ghost btn-sm" data-del="${esc(e.id)}" title="حذف">🗑</button>
+      ${isAdmin ? `<td style="width:108px"><div class="row-actions">
+        <button class="icon-btn swap" data-type="${esc(e.id)}"
+                title="${e.isBot ? 'این کانال است، نه ربات' : 'این ربات است، نه کانال'}"
+                aria-label="تغییر نوع">${svg(e.isBot ? 'channel' : 'bot')}</button>
+        <button class="icon-btn" data-reset="${esc(e.id)}"
+                title="صفر کردن نمره" aria-label="صفر کردن نمره">${svg('reset')}</button>
+        <button class="icon-btn danger" data-del="${esc(e.id)}"
+                title="حذف" aria-label="حذف">${svg('trash')}</button>
       </div></td>` : ''}
     </tr>`).join('');
 
@@ -832,12 +919,14 @@ function renderEntries() {
       <table>
         <thead><tr>
           ${isAdmin ? '<th><input type="checkbox" id="pick-all" style="width:auto"></th>' : ''}
-          <th>#</th><th>یوزرنیم</th><th>نمره</th><th>ثبت‌کننده</th><th>تاریخ</th>
+          <th>#</th><th></th><th>یوزرنیم</th><th>نمره</th><th>ثبت‌کننده</th><th>تاریخ</th>
           ${isAdmin ? '<th></th>' : ''}
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`;
+
+  bindCopyButtons(box);
 
   $$('[data-vote]', box).forEach((btn) => {
     btn.onclick = async () => {
@@ -1119,16 +1208,20 @@ async function viewSearch() {
           return;
         }
         box.innerHTML = `<div class="table-wrap"><table>
-          <thead><tr><th>یوزرنیم</th><th>نوع</th><th>گروه</th><th>نمره</th><th>ثبت‌کننده</th><th>تاریخ</th></tr></thead>
+          <thead><tr><th></th><th>یوزرنیم</th><th>نوع</th><th>گروه</th><th>نمره</th><th>ثبت‌کننده</th><th>تاریخ</th></tr></thead>
           <tbody>${r.results.map((e) => `
             <tr class="${e.score < 0 ? 'weak' : ''}">
+              <td style="width:38px"><button class="icon-btn copy" data-copy="@${esc(e.username)}"
+                title="کپی @${esc(e.username)}" aria-label="کپی">${svg('copy')}</button></td>
               <td><a class="uname" href="${esc(e.link)}" target="_blank" rel="noopener noreferrer">@${esc(e.username)}</a></td>
-              <td><span class="badge ${e.isBot ? 'badge-purple' : 'badge-accent'}">${e.isBot ? '🤖 ربات' : '📢 کانال'}</span></td>
+              <td><span class="badge ${e.isBot ? 'badge-purple' : 'badge-accent'}">
+                ${svg(e.isBot ? 'bot' : 'channel', 'ico')} ${e.isBot ? 'ربات' : 'کانال'}</span></td>
               <td>${esc(e.groupTitle)}</td>
-              <td>${e.score < 0 ? `<span class="badge badge-red">👎 ${esc(fa(e.voteCount))}</span>` : '<span class="faint">۰</span>'}</td>
+              <td>${e.score < 0 ? `<span class="badge badge-red">${svg('thumbDown', 'ico')} ${esc(fa(e.voteCount))}</span>` : '<span class="faint">۰</span>'}</td>
               <td class="faint">${esc(e.addedByName)}</td>
               <td class="faint nowrap">${esc(e.createdAtLabel.split(' ساعت')[0])}</td>
             </tr>`).join('')}</tbody></table></div>`;
+        bindCopyButtons(box);
       } catch (err) { box.innerHTML = `<div class="alert alert-red">${esc(err.message)}</div>`; }
     }, 280);
   };
@@ -1176,8 +1269,8 @@ async function viewUsers() {
           <td><b>${esc(fa(u.entryCount))}</b></td>
           <td class="faint nowrap" style="font-size:12px">${esc(u.lastLoginLabel)}</td>
           <td><div class="row-actions">
-            <button class="btn btn-ghost btn-sm" data-edit="${esc(u.id)}" title="ویرایش">✏️</button>
-            ${u.id !== S.user.id ? `<button class="btn btn-ghost btn-sm" data-del="${esc(u.id)}" title="حذف">🗑</button>` : ''}
+            <button class="icon-btn" data-edit="${esc(u.id)}" title="ویرایش" aria-label="ویرایش">${svg('edit')}</button>
+            ${u.id !== S.user.id ? `<button class="icon-btn danger" data-del="${esc(u.id)}" title="حذف" aria-label="حذف">${svg('trash')}</button>` : ''}
           </div></td>
         </tr>`).join('')}</tbody>
     </table></div>`;
