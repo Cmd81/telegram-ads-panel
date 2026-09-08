@@ -14,6 +14,13 @@ const store = require('../server/store');
 const auth = require('../server/auth');
 const { rid } = require('../server/util');
 
+// این اسکریپت فقط برای توسعهٔ محلی است و نباید روی نصب واقعی اجرا شود
+if (/[/\\]opt[/\\]channel-ads/.test(store.DATA_DIR)) {
+  console.error('این اسکریپت روی نصب واقعی سرور اجرا نمی‌شود.');
+  console.error(`مسیر داده: ${store.DATA_DIR}`);
+  process.exit(1);
+}
+
 store.load();
 const db = store.get();
 
