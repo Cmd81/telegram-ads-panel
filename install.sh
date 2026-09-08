@@ -138,7 +138,12 @@ fi
 ok "پورت ${PORT} آزاد است"
 
 WEB_SERVER="none"
+PORT80_OWNER=""
 if [ -n "$DOMAIN" ]; then
+  # چه پروسه‌ای پورت ۸۰ را در اختیار دارد؟ (ممکن است داکر یا هر پروکسی دیگری باشد)
+  PORT80_OWNER="$(ss -ltnp 2>/dev/null | awk '$4 ~ /:80$/ {print $NF; exit}' \
+    | sed -E 's/.*"([^"]+)".*/\1/')"
+
   if command -v nginx >/dev/null 2>&1; then
     WEB_SERVER="nginx"
     ok "nginx از قبل نصب است — فقط یک فایل تنظیمات جدید اضافه می‌شود"
@@ -148,6 +153,14 @@ if [ -n "$DOMAIN" ]; then
   elif command -v apache2 >/dev/null 2>&1; then
     WEB_SERVER="apache"
     warn "Apache نصب است. تنظیمات آماده در پایان چاپ می‌شود تا خودتان اضافه کنید."
+  elif [ -n "$PORT80_OWNER" ]; then
+    # پورت ۸۰ اشغال است ولی هیچ وب‌سروری روی خودِ سیستم نصب نیست:
+    # یعنی یک پروکسی دیگر (معمولاً داکر) آن را در اختیار دارد.
+    # نصب nginx اینجا فقط یک سرویس خراب به جا می‌گذارد، پس انجامش نمی‌دهیم.
+    WEB_SERVER="external"
+    warn "پورت ۸۰ در اختیار «${PORT80_OWNER}» است و وب‌سروری روی سیستم نصب نیست."
+    warn "برای دست نخوردن سرویس فعلی، nginx نصب نمی‌شود."
+    info "برنامه روی 127.0.0.1:${PORT} بالا می‌آید و تنظیمات پروکسی در پایان چاپ می‌شود."
   else
     WEB_SERVER="nginx-install"
     info "هیچ وب‌سروری نصب نیست؛ nginx نصب خواهد شد."
@@ -513,6 +526,29 @@ if [ -n "$DOMAIN" ] && [ "$USE_TLS" != "1" ]; then
   echo "  ${YELLOW}${BOLD}توجه:${RESET} سایت روی HTTP سرو می‌شود."
   echo "  ${DIM}مطمئن شوید رکورد A دامنهٔ ${DOMAIN} به IP این سرور اشاره می‌کند، سپس:${RESET}"
   echo "  ${DIM}sudo certbot --nginx -d ${DOMAIN}${RESET}"
+fi
+
+if [ "$WEB_SERVER" = "external" ]; then
+  echo
+  echo "  ${YELLOW}${BOLD}پروکسی خارجی:${RESET} پورت ۸۰ در اختیار «${PORT80_OWNER}» است."
+  echo "  ${DIM}برنامه روی 127.0.0.1:${PORT} در حال اجراست و دست‌نخورده باقی مانده.${RESET}"
+  echo "  ${DIM}برای وصل کردن دامنه، این بلوک را به پروکسی فعلی خود اضافه کنید:${RESET}"
+  echo "${DIM}"
+  echo "    server {"
+  echo "        listen 443 ssl;"
+  echo "        server_name ${DOMAIN};"
+  echo "        # مسیر گواهی SSL خود را اینجا بگذارید"
+  echo "        location / {"
+  echo "            proxy_pass http://127.0.0.1:${PORT};"
+  echo "            proxy_set_header Host              \$host;"
+  echo "            proxy_set_header X-Real-IP         \$remote_addr;"
+  echo "            proxy_set_header X-Forwarded-For   \$proxy_add_x_forwarded_for;"
+  echo "            proxy_set_header X-Forwarded-Proto \$scheme;"
+  echo "        }"
+  echo "    }"
+  echo "${RESET}"
+  echo "  ${DIM}اگر پروکسی داخل داکر است، از 172.17.0.1 به جای 127.0.0.1 استفاده کنید${RESET}"
+  echo "  ${DIM}و برنامه را با HOST=0.0.0.0 در ${ENV_FILE} اجرا کنید.${RESET}"
 fi
 
 if [ "$WEB_SERVER" = "caddy" ]; then

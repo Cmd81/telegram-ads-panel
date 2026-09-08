@@ -189,6 +189,32 @@ check "پیام خطای پورت واضح است" "$(has "${SANDBOX}/out.txt" '
 
 # ===========================================================================
 echo
+echo "════ سناریو ۵: پورت ۸۰ در اختیار داکر (نباید nginx نصب شود) ════"
+rm -rf "${FAKE_ROOT}/opt/channel-ads" "$UNIT" "$NGX" "${FAKE_ROOT}/etc/nginx/sites-enabled/channel-ads"
+
+# پورت ۸۰ اشغال است ولی پورت برنامه آزاد؛ nginx هم روی سیستم نصب نیست
+cat > "${STUB_BIN}/ss" <<'STUB'
+#!/usr/bin/env bash
+echo 'LISTEN 0 4096 0.0.0.0:80 0.0.0.0:* users:(("docker-proxy",pid=771663,fd=8))'
+echo 'LISTEN 0 4096 0.0.0.0:443 0.0.0.0:* users:(("docker-proxy",pid=771683,fd=8))'
+STUB
+chmod +x "${STUB_BIN}/ss"
+rm -f "${STUB_BIN}/nginx"          # nginx روی سیستم نصب نیست
+: > "$LOG"
+rc=$(run_install DOMAIN=ads.example.com EMAIL=me@example.com ADMIN_USER=admin PORT=8787)
+
+check "نصب با وجود پورت ۸۰ اشغال موفق بود" "$rc" "$(tail -5 "${SANDBOX}/out.txt")"
+check "nginx نصب نشد" "$([ "$(has "$LOG" 'apt-get install -y -qq nginx')" = false ] && echo 0 || echo 1)"
+check "فایل تنظیمات nginx ساخته نشد" "$([ ! -f "$NGX" ] && echo 0 || echo 1)"
+check "certbot اجرا نشد" "$([ "$(has "$LOG" 'certbot')" = false ] && echo 0 || echo 1)"
+check "هشدار پروکسی خارجی نمایش داده شد" "$(has "${SANDBOX}/out.txt" 'پورت ۸۰ در اختیار')"
+check "نام پروسهٔ اشغال‌کننده تشخیص داده شد" "$(has "${SANDBOX}/out.txt" 'docker-proxy')"
+check "تنظیمات آمادهٔ پروکسی چاپ شد" "$(has "${SANDBOX}/out.txt" 'proxy_pass http://127.0.0.1:8787;')"
+check "برنامه همچنان نصب و اجرا شد" "$([ -f "${APP}/server/index.js" ] && echo 0 || echo 1)"
+check "سرویس systemd ساخته شد" "$([ -f "$UNIT" ] && echo 0 || echo 1)"
+
+# ===========================================================================
+echo
 echo "────────────────────────────────────────────"
 echo "  موفق: ${pass}   ناموفق: ${fail}"
 echo "────────────────────────────────────────────"
