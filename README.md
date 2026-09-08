@@ -202,6 +202,40 @@ docker run --rm -v certbot-conf:/etc/letsencrypt -v certbot-www:/var/www/certbot
 > ⚠️ اگر روزی شبکهٔ داکر بازسازی شود (`docker compose down` و بالا آوردن مجدد)، ممکن است
 > آدرس gateway عوض شود. در آن صورت `HOST` در `app.env` و `proxy_pass` را با آدرس جدید هماهنگ کنید.
 
+#### وقتی استقرار پروژهٔ دیگر تنظیمات nginx را بازتولید می‌کند
+
+خیلی از پروژه‌ها هنگام استقرار، `nginx.conf` را از روی یک template بازمی‌سازند.
+در این حالت بلوکی که برای داشبورد اضافه کرده‌اید **پاک می‌شود و داشبورد از دسترس خارج می‌شود**.
+
+برای اینکه خودکار برگردد، یک ناظر نصب کنید:
+
+```bash
+sudo NGINX_CONF=/opt/other-project/docker/nginx.conf \
+     DOMAIN=ads.example.com \
+     UPSTREAM=172.17.0.1:8787 \
+     NGINX_CONTAINER=other-nginx \
+     bash /opt/channel-ads/scripts/ensure-vhost-install.sh
+```
+
+> `NGINX_CONTAINER` را فقط وقتی بدهید که nginx داخل داکر است؛ برای nginx روی خود سیستم خالی بگذارید.
+
+این یک واحد `systemd.path` می‌سازد که فایل را زیر نظر می‌گیرد و به محض تغییر،
+بلوک داشبورد را دوباره اضافه و nginx را بازخوانی می‌کند. قبل از هر تغییر پشتیبان می‌گیرد،
+با `nginx -t` اعتبارسنجی می‌کند و در صورت خطا همه‌چیز را برمی‌گرداند.
+
+```bash
+systemctl status channel-ads-vhost.path            # وضعیت
+journalctl -u channel-ads-vhost.service -n 20      # لاگ
+sudo bash /opt/channel-ads/scripts/ensure-vhost.sh # اجرای دستی
+sudo bash /opt/channel-ads/scripts/ensure-vhost-install.sh --uninstall  # حذف
+```
+
+> ⚠️ **نکتهٔ مهم هنگام ویرایش دستی فایلی که به داکر mount شده:**
+> از `sed -i` استفاده نکنید. این دستور فایل را جایگزین می‌کند و inode عوض می‌شود،
+> ولی bind mount داکر به inode قدیمی چسبیده می‌ماند — یعنی **کانتینر تغییر شما را نمی‌بیند**.
+> به‌جایش از `cat >>` برای افزودن یا `cp newfile target` برای بازنویسی استفاده کنید،
+> یا بعد از ویرایش کانتینر را ری‌استارت کنید. (اسکریپت ناظر خودش این را رعایت می‌کند.)
+
 ---
 
 ## نقش‌ها و دسترسی‌ها
