@@ -215,6 +215,33 @@ check "سرویس systemd ساخته شد" "$([ -f "$UNIT" ] && echo 0 || echo 1
 
 # ===========================================================================
 echo
+echo "════ سناریو ۶: نصب مجدد وقتی HOST دستی تغییر کرده ════"
+# نصب موجود (وجود db.json) با HOST دستی‌شده روی آدرس شبکهٔ داکر؛
+# تست سلامت باید همان آدرس را چک کند نه 127.0.0.1
+echo '{"version":1,"groups":[],"entries":[],"users":[],"logs":[],"settings":{}}' > "${APP}/data/db.json"
+sed -i 's/^HOST=.*/HOST=172.17.0.1/' "$ENVF"
+
+# curl فقط به آدرس درست پاسخ می‌دهد تا مطمئن شویم اسکریپت همان را صدا می‌زند
+cat > "${STUB_BIN}/curl" <<'STUB'
+#!/usr/bin/env bash
+for a in "$@"; do
+  case "$a" in
+    *172.17.0.1:*healthz) exit 0 ;;
+    *127.0.0.1:*healthz)  exit 1 ;;
+    *ipify*) echo "203.0.113.45"; exit 0 ;;
+  esac
+done
+exit 1
+STUB
+chmod +x "${STUB_BIN}/curl"
+
+rc=$(run_install DOMAIN=ads.example.com ADMIN_USER=admin PORT=8787)
+check "تست سلامت آدرس واقعی برنامه را می‌خواند" "$rc" "$(tail -6 "${SANDBOX}/out.txt")"
+check "آدرس درست در پیام نمایش داده شد" "$(has "${SANDBOX}/out.txt" '172.17.0.1:8787')"
+check "HOST دستی بازنویسی نشد" "$(has "$ENVF" 'HOST=172.17.0.1')"
+
+# ===========================================================================
+echo
 echo "────────────────────────────────────────────"
 echo "  موفق: ${pass}   ناموفق: ${fail}"
 echo "────────────────────────────────────────────"

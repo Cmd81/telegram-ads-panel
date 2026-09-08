@@ -364,12 +364,18 @@ systemctl enable "$APP_NAME" >/dev/null 2>&1
 systemctl restart "$APP_NAME"
 ok "سرویس ${APP_NAME} فعال و اجرا شد"
 
-# انتظار برای بالا آمدن
-info "بررسی سلامت سرویس..."
+# انتظار برای بالا آمدن.
+# آدرس تست باید همان چیزی باشد که برنامه روی آن گوش می‌دهد — در نصب مجدد ممکن است
+# مدیر HOST را در app.env تغییر داده باشد (مثلاً 172.17.0.1 پشت داکر).
+HEALTH_HOST="$(sed -n 's/^HOST=//p' "$ENV_FILE" 2>/dev/null | tail -n 1)"
+HEALTH_HOST="${HEALTH_HOST:-127.0.0.1}"
+case "$HEALTH_HOST" in 0.0.0.0|::|"") HEALTH_HOST="127.0.0.1" ;; esac
+
+info "بررسی سلامت سرویس (${HEALTH_HOST}:${PORT})..."
 HEALTHY=0
 for _ in $(seq 1 20); do
   sleep 0.5
-  if curl -fsS --max-time 2 "http://127.0.0.1:${PORT}/healthz" >/dev/null 2>&1; then
+  if curl -fsS --max-time 2 "http://${HEALTH_HOST}:${PORT}/healthz" >/dev/null 2>&1; then
     HEALTHY=1; break
   fi
 done

@@ -112,10 +112,17 @@ systemctl start "$APP_NAME"
 
 PORT="$(sed -n 's/^PORT=//p' "$ENV_FILE" 2>/dev/null | tail -n 1)"
 PORT="${PORT:-8787}"
+
+# آدرس تست سلامت باید همان چیزی باشد که برنامه روی آن گوش می‌دهد،
+# نه همیشه 127.0.0.1 (مثلاً وقتی پشت داکر روی 172.17.0.1 اجرا می‌شود)
+HEALTH_HOST="$(sed -n 's/^HOST=//p' "$ENV_FILE" 2>/dev/null | tail -n 1)"
+HEALTH_HOST="${HEALTH_HOST:-127.0.0.1}"
+[ "$HEALTH_HOST" = "0.0.0.0" ] && HEALTH_HOST="127.0.0.1"
+[ "$HEALTH_HOST" = "::" ] && HEALTH_HOST="127.0.0.1"
 HEALTHY=0
 for _ in $(seq 1 20); do
   sleep 0.5
-  if curl -fsS --max-time 2 "http://127.0.0.1:${PORT}/healthz" >/dev/null 2>&1; then
+  if curl -fsS --max-time 2 "http://${HEALTH_HOST}:${PORT}/healthz" >/dev/null 2>&1; then
     HEALTHY=1; break
   fi
 done
